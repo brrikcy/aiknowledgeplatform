@@ -16,7 +16,7 @@ The goal of this project is to build a **production-style AI infrastructure syst
 - AI agents for knowledge interaction
 - Local deployment inside company infrastructure
 
-This project is also designed as a **learning journey for building real-world AI systems**, covering backend engineering, vector databases, RAG pipelines, and AI orchestration.
+This project also serves as a **hands-on learning journey for building real-world AI systems**, covering backend engineering, vector databases, RAG pipelines, and AI orchestration.
 
 ---
 
@@ -27,7 +27,7 @@ This project is also designed as a **learning journey for building real-world AI
 - Semantic chunking and embedding generation
 - Vector search using embeddings
 - LLM-powered question answering
-- AI agents that can interact with company knowledge
+- AI agents interacting with enterprise knowledge
 - Python SDK for developer integration
 - Fully local deployment using Docker
 
@@ -102,16 +102,17 @@ Answers / AI Agents
 knowledge-ai-platform
 │
 ├── api
-│   └── main.py           # FastAPI application
+│   └── main.py            # FastAPI application
 │
 ├── database
-│   └── db.py             # Database connection
+│   ├── db.py              # Database connection & session
+│   └── models.py          # SQLAlchemy models
 │
-├── services              # Business logic (RAG, agents later)
+├── services               # Business logic (RAG, agents later)
 │
-├── storage               # Uploaded documents
+├── storage                # Uploaded documents
 │
-├── scripts               # Utility scripts
+├── scripts                # Utility scripts
 │
 ├── requirements.txt
 └── README.md
@@ -121,27 +122,78 @@ knowledge-ai-platform
 
 # Current Project Status
 
-## Day 1
-- Project structure created
+## Day 1 – Backend Setup
+- Project repository created
 - FastAPI backend initialized
-- API documentation available via Swagger
+- Swagger API documentation enabled
 
-## Day 2
-- PostgreSQL database running via Docker
+Available endpoint:
+
+```
+GET /
+```
+
+Response:
+
+```
+{"status": "running"}
+```
+
+---
+
+## Day 2 – Database Integration
+
+- PostgreSQL running via Docker
 - SQLAlchemy database connection implemented
-- Database connectivity verified through `/db-test` endpoint
+- Database connectivity verified
 
-Example endpoint:
+Test endpoint:
 
 ```
 GET /db-test
 ```
 
+Response:
+
+```
+{"database": "connected"}
+```
+
+---
+
+## Day 3 – Database Models & Data Insertion
+
+Implemented:
+
+- SQLAlchemy Base model
+- `documents` table
+- database session dependency
+- API to insert document records
+
+Endpoint:
+
+```
+POST /documents
+```
+
+Example request:
+
+```
+file_name = policy.pdf
+storage_path = storage/policy.pdf
+```
+
 Example response:
 
 ```
-{"database":"connected"}
+{
+  "id": "uuid-value",
+  "file_name": "policy.pdf",
+  "status": "uploaded"
+}
 ```
+
+Data is successfully stored in PostgreSQL.
 
 ---
 
@@ -153,7 +205,9 @@ Example response:
 pip install -r requirements.txt
 ```
 
-## 2 Start PostgreSQL using Docker
+---
+
+## 2 Start PostgreSQL with Docker
 
 ```
 docker run -d \
@@ -165,11 +219,15 @@ docker run -d \
   postgres:15
 ```
 
-## 3 Run backend server
+---
+
+## 3 Run the backend server
 
 ```
 uvicorn api.main:app --reload
 ```
+
+---
 
 ## 4 Open API documentation
 
@@ -181,45 +239,44 @@ http://localhost:8000/docs
 
 # Development Roadmap
 
-## Week 1
-Backend foundation
+## Week 1 – Backend Foundation
 - FastAPI setup
-- PostgreSQL connection
-- Document upload APIs
+- PostgreSQL integration
+- Document CRUD APIs
 
-## Week 2
-Document ingestion
+## Week 2 – Document Processing
 - PDF/DOCX parsing
 - text extraction
 - document storage
 
-## Week 3
-Embedding pipeline
-- chunking
+## Week 3 – Embedding Pipeline
+- semantic chunking
 - embedding generation
 - vector database integration
 
-## Week 4
-RAG system
+## Week 4 – RAG System
 - vector search
 - LLM integration
 - question answering
 
-## Week 5
-AI agents and SDK
+## Week 5 – AI Agents & SDK
+- agent tool execution
+- Python SDK
 
-## Week 6
-Docker deployment and system optimization
+## Week 6 – Production Setup
+- Docker deployment
+- Redis caching
+- system optimization
 
 ---
 
 # Future Improvements
 
 - AI agent orchestration
-- UI dashboard
-- observability (metrics/logging)
+- web dashboard
+- observability (metrics & logs)
 - Kubernetes deployment
-- multi-tenant support
+- multi-tenant architecture
 
 ---
 
@@ -227,8 +284,3 @@ Docker deployment and system optimization
 
 Ajmal  
 AI Engineer | MSc Artificial Intelligence & Machine Learning
-
-
-
-
-
