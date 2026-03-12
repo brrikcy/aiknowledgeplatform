@@ -39,7 +39,7 @@ def extract_text(file_path):
     if file_path.endswith(".pdf"):
         return extract_text_from_pdf(file_path)
 
-    if file_path.endwith(".docx"):
+    if file_path.endswith(".docx"):
         return extract_text_from_docx(file_path)
 
     return ""

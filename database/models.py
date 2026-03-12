@@ -1,4 +1,4 @@
-from sqlalchemy import Column,String,DateTime
+from sqlalchemy import Column,String,DateTime,Integer
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
 import uuid
@@ -25,6 +25,6 @@ class DocumentChunk(Base):
 
     chunk_text = Column(String, nullable=False)
 
-    chunk_index = Column(String)
+    chunk_index = Column(Integer)
 
     created_at = Column(DateTime, default=datetime.utcnow)
