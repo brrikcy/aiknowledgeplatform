@@ -1,9 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from database.db import engine, Base,get_db
 from database import models
 from database.models import Document
 from sqlalchemy.orm import Session
 from fastapi import Depends
+import shutil
+import os
+import uuid
 
 
 app=FastAPI(
@@ -24,11 +27,25 @@ def test_db():
         return {"database": "connected"}
     except Exception as e:
         return {"database": "error", "details":str(e)}
+
 @app.post("/documents")
-def create_document(file_name: str,storage_path: str, db: Session = Depends(get_db)):
+def upload_document(file: UploadFile = File(...),db: Session = Depends(get_db)):
+
+    allowed_extensions= ["pdf", "txt", "docx"]
+    file_extension = file.filename.split(".")[-1].lower()
+
+    if file_extension not in allowed_extensions:
+        return {"error": "File type not allowed"}
+
+    unique_filename= f"{uuid.uuid4()}_{file.filename}"
+    file_location=f"storage/documents/{unique_filename}"
+
+    with open(file_location, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
     document=Document(
-            file_name=file_name,
-            storage_path=storage_path
+            file_name=file.filename,
+            storage_path=file_location
             )
     db.add(document)
     db.commit()

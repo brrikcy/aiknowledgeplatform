@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 *.log
 .DS_Store
+storage/documents/*
+!storage/documents/.gitkeep

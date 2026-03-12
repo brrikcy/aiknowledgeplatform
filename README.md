@@ -12,19 +12,21 @@ The goal of this project is to build a **production-style AI infrastructure plat
 
 - Ingesting enterprise documents
 - Storing document metadata
+- Processing document content
 - Enabling semantic search over internal knowledge
 - Supporting Retrieval Augmented Generation (RAG)
 - Allowing AI agents to interact with company data
 - Running fully locally using containerized infrastructure
 
-This project is also designed as a **hands-on learning journey for building real-world AI systems**, covering backend development, vector databases, RAG pipelines, and AI orchestration.
+This project also serves as a **hands-on learning journey for building real-world AI systems**, covering backend development, vector databases, RAG pipelines, and AI orchestration.
 
 ---
 
 # Core Features (Planned)
 
 - Upload enterprise documents (PDF, DOCX, TXT)
-- Document metadata storage
+- Automatic document parsing
+- Text extraction from documents
 - Semantic chunking and embedding generation
 - Vector search using embeddings
 - LLM-powered question answering
@@ -42,7 +44,10 @@ Users
   ▼
 FastAPI Backend
   │
-  ├── Document Processing
+  ├── Document Upload
+  │        │
+  │        ▼
+  │    Local Storage
   │        │
   │        ▼
   │    Text Extraction
@@ -111,7 +116,8 @@ knowledge-ai-platform
 │
 ├── services               # Business logic (RAG, agents later)
 │
-├── storage                # Uploaded documents
+├── storage
+│   └── documents          # Uploaded files stored locally
 │
 ├── scripts                # Utility scripts
 │
@@ -124,9 +130,10 @@ knowledge-ai-platform
 # Current Project Status
 
 ## Day 1 — Backend Setup
+
 - Project repository created
 - FastAPI backend initialized
-- API documentation available via Swagger UI
+- Swagger API documentation enabled
 
 Endpoint:
 
@@ -144,11 +151,9 @@ Response:
 
 ## Day 2 — Database Integration
 
-Implemented:
-
 - PostgreSQL running via Docker
-- SQLAlchemy database connection
-- Database connectivity verification endpoint
+- SQLAlchemy database connection implemented
+- Database connectivity verified
 
 Endpoint:
 
@@ -179,23 +184,6 @@ Endpoint:
 POST /documents
 ```
 
-Example request:
-
-```
-file_name = policy.pdf
-storage_path = storage/policy.pdf
-```
-
-Example response:
-
-```
-{
-  "id": "uuid-value",
-  "file_name": "policy.pdf",
-  "status": "uploaded"
-}
-```
-
 ---
 
 ## Day 4 — Document CRUD APIs
@@ -211,24 +199,45 @@ GET    /documents/{document_id}
 DELETE /documents/{document_id}
 ```
 
-Example list response:
+Capabilities:
+
+- Create document records
+- List stored documents
+- Retrieve individual document metadata
+- Delete documents
+
+---
+
+## Day 5 — Document Upload System
+
+Implemented **real document upload functionality**.
+
+Features added:
+
+- File upload API
+- Local document storage
+- Unique filename generation using UUID
+- File type validation
+
+Allowed file types:
 
 ```
-[
-  {
-    "id": "uuid",
-    "file_name": "test.pdf",
-    "status": "uploaded"
-  }
-]
+pdf
+docx
+txt
 ```
 
-These APIs allow:
+Uploaded files are stored in:
 
-- Creating document records
-- Listing stored documents
-- Fetching individual documents
-- Deleting documents
+```
+storage/documents/
+```
+
+Example stored file:
+
+```
+storage/documents/2e4f9a-test.pdf
+```
 
 ---
 
@@ -277,12 +286,14 @@ http://localhost:8000/docs
 ## Week 1 — Backend Foundation
 - FastAPI setup
 - PostgreSQL integration
-- Document metadata CRUD APIs
+- Document CRUD APIs
+- Document upload system
 
 ## Week 2 — Document Processing
-- File upload APIs
-- PDF/DOCX parsing
+- PDF parsing
+- DOCX parsing
 - text extraction
+- document processing pipeline
 
 ## Week 3 — Embedding Pipeline
 - semantic chunking
