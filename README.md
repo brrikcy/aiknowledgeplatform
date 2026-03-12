@@ -2,7 +2,7 @@
 
 A **self-hosted AI knowledge platform** that allows organizations to upload internal documents and interact with them using **LLM-powered semantic search and Retrieval Augmented Generation (RAG)**.
 
-The platform is designed to run **entirely inside an organization's infrastructure**, ensuring that sensitive company data never leaves their environment.
+The platform runs **entirely inside the organization's infrastructure**, ensuring that sensitive company data never leaves their environment.
 
 ---
 
@@ -11,8 +11,7 @@ The platform is designed to run **entirely inside an organization's infrastructu
 The goal of this project is to build a **production-style AI infrastructure platform** capable of:
 
 - Ingesting enterprise documents
-- Storing document metadata
-- Processing document content
+- Extracting and processing document text
 - Enabling semantic search over internal knowledge
 - Supporting Retrieval Augmented Generation (RAG)
 - Allowing AI agents to interact with company data
@@ -91,10 +90,9 @@ Answers / AI Agents
 - Sentence Transformers
 - OpenAI / Local LLMs
 
-### Document Processing (Planned)
+### Document Processing
 - PyMuPDF
 - python-docx
-- pytesseract
 
 ### Infrastructure
 - Docker
@@ -108,18 +106,21 @@ Answers / AI Agents
 knowledge-ai-platform
 │
 ├── api
-│   └── main.py            # FastAPI application
+│   ├── main.py
+│   └── routes
+│        └── documents.py
 │
 ├── database
-│   ├── db.py              # Database connection & session
-│   └── models.py          # SQLAlchemy models
+│   ├── db.py
+│   └── models.py
 │
-├── services               # Business logic (RAG, agents later)
+├── services
+│   └── document_processor.py
 │
 ├── storage
-│   └── documents          # Uploaded files stored locally
+│   └── documents
 │
-├── scripts                # Utility scripts
+├── scripts
 │
 ├── requirements.txt
 └── README.md
@@ -169,7 +170,7 @@ Response:
 
 ---
 
-## Day 3 — Database Models & Data Insertion
+## Day 3 — Database Models
 
 Implemented:
 
@@ -233,11 +234,39 @@ Uploaded files are stored in:
 storage/documents/
 ```
 
-Example stored file:
+---
+
+## Day 6 — Document Text Extraction
+
+Implemented the **document processing service**.
+
+New capability:
+
+- Extract text from uploaded documents
+
+Supported formats:
 
 ```
-storage/documents/2e4f9a-test.pdf
+PDF
+DOCX
+TXT
 ```
+
+Pipeline implemented:
+
+```
+Upload Document
+      ↓
+Save File
+      ↓
+Extract Text
+      ↓
+Store Extracted Text in Database
+```
+
+The extracted text is stored in the `text_content` column of the `documents` table.
+
+This marks the **beginning of the RAG pipeline**.
 
 ---
 
@@ -288,15 +317,14 @@ http://localhost:8000/docs
 - PostgreSQL integration
 - Document CRUD APIs
 - Document upload system
+- Document text extraction
 
 ## Week 2 — Document Processing
-- PDF parsing
-- DOCX parsing
-- text extraction
+- text chunking
+- document indexing
 - document processing pipeline
 
 ## Week 3 — Embedding Pipeline
-- semantic chunking
 - embedding generation
 - vector database integration
 

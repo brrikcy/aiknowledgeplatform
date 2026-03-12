@@ -12,4 +12,5 @@ class Document(Base):
     file_name=Column(String,nullable=False)
     storage_path=Column(String,nullable=False)
     status=Column(String,default="uploaded")
+    text_content = Column(String, nullable=True)
     created_at=Column(DateTime, default=datetime.utcnow)

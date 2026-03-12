@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, UploadFile, File
+from services.document_processor import extract_text
 from sqlalchemy.orm import Session
 import shutil
 import uuid
@@ -25,9 +26,15 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
     with open(file_location, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    text = extract_text(file_location)
+
+    print("Extracted text preview: ")
+    print(text[:500])
+
     document = Document(
         file_name=file.filename,
-        storage_path=file_location
+        storage_path=file_location,
+        text_content=text
     )
 
     db.add(document)
