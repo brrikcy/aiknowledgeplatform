@@ -2,28 +2,29 @@
 
 A **self-hosted AI knowledge platform** that allows organizations to upload internal documents and interact with them using **LLM-powered semantic search and Retrieval Augmented Generation (RAG)**.
 
-The system runs **entirely inside the organization's infrastructure**, ensuring that sensitive company data never leaves their environment.
+The platform is designed to run **entirely inside an organization's infrastructure**, ensuring that sensitive company data never leaves their environment.
 
 ---
 
 # Project Goal
 
-The goal of this project is to build a **production-style AI infrastructure system** that enables:
+The goal of this project is to build a **production-style AI infrastructure platform** capable of:
 
-- Document ingestion
-- Semantic search over documents
-- Retrieval Augmented Generation (RAG)
-- AI agents for knowledge interaction
-- Local deployment inside company infrastructure
+- Ingesting enterprise documents
+- Storing document metadata
+- Enabling semantic search over internal knowledge
+- Supporting Retrieval Augmented Generation (RAG)
+- Allowing AI agents to interact with company data
+- Running fully locally using containerized infrastructure
 
-This project also serves as a **hands-on learning journey for building real-world AI systems**, covering backend engineering, vector databases, RAG pipelines, and AI orchestration.
+This project is also designed as a **hands-on learning journey for building real-world AI systems**, covering backend development, vector databases, RAG pipelines, and AI orchestration.
 
 ---
 
 # Core Features (Planned)
 
 - Upload enterprise documents (PDF, DOCX, TXT)
-- Automatic document parsing and processing
+- Document metadata storage
 - Semantic chunking and embedding generation
 - Vector search using embeddings
 - LLM-powered question answering
@@ -122,12 +123,12 @@ knowledge-ai-platform
 
 # Current Project Status
 
-## Day 1 – Backend Setup
+## Day 1 — Backend Setup
 - Project repository created
 - FastAPI backend initialized
-- Swagger API documentation enabled
+- API documentation available via Swagger UI
 
-Available endpoint:
+Endpoint:
 
 ```
 GET /
@@ -141,13 +142,15 @@ Response:
 
 ---
 
-## Day 2 – Database Integration
+## Day 2 — Database Integration
+
+Implemented:
 
 - PostgreSQL running via Docker
-- SQLAlchemy database connection implemented
-- Database connectivity verified
+- SQLAlchemy database connection
+- Database connectivity verification endpoint
 
-Test endpoint:
+Endpoint:
 
 ```
 GET /db-test
@@ -161,13 +164,13 @@ Response:
 
 ---
 
-## Day 3 – Database Models & Data Insertion
+## Day 3 — Database Models & Data Insertion
 
 Implemented:
 
 - SQLAlchemy Base model
 - `documents` table
-- database session dependency
+- Database session dependency
 - API to insert document records
 
 Endpoint:
@@ -193,7 +196,39 @@ Example response:
 }
 ```
 
-Data is successfully stored in PostgreSQL.
+---
+
+## Day 4 — Document CRUD APIs
+
+Implemented full CRUD operations for document metadata.
+
+Endpoints:
+
+```
+POST   /documents
+GET    /documents
+GET    /documents/{document_id}
+DELETE /documents/{document_id}
+```
+
+Example list response:
+
+```
+[
+  {
+    "id": "uuid",
+    "file_name": "test.pdf",
+    "status": "uploaded"
+  }
+]
+```
+
+These APIs allow:
+
+- Creating document records
+- Listing stored documents
+- Fetching individual documents
+- Deleting documents
 
 ---
 
@@ -207,7 +242,7 @@ pip install -r requirements.txt
 
 ---
 
-## 2 Start PostgreSQL with Docker
+## 2 Start PostgreSQL using Docker
 
 ```
 docker run -d \
@@ -239,31 +274,31 @@ http://localhost:8000/docs
 
 # Development Roadmap
 
-## Week 1 – Backend Foundation
+## Week 1 — Backend Foundation
 - FastAPI setup
 - PostgreSQL integration
-- Document CRUD APIs
+- Document metadata CRUD APIs
 
-## Week 2 – Document Processing
+## Week 2 — Document Processing
+- File upload APIs
 - PDF/DOCX parsing
 - text extraction
-- document storage
 
-## Week 3 – Embedding Pipeline
+## Week 3 — Embedding Pipeline
 - semantic chunking
 - embedding generation
 - vector database integration
 
-## Week 4 – RAG System
+## Week 4 — RAG System
 - vector search
 - LLM integration
 - question answering
 
-## Week 5 – AI Agents & SDK
+## Week 5 — AI Agents & SDK
 - agent tool execution
 - Python SDK
 
-## Week 6 – Production Setup
+## Week 6 — Production Setup
 - Docker deployment
 - Redis caching
 - system optimization
