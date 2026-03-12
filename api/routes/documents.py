@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile, File
 from services.document_processor import extract_text
+from services.text_chunker import chunk_text
+from database.models import DocumentChunk
 from sqlalchemy.orm import Session
 import shutil
 import uuid
@@ -27,9 +29,8 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
         shutil.copyfileobj(file.file, buffer)
 
     text = extract_text(file_location)
+    chunks=chunk_text(text)
 
-    print("Extracted text preview: ")
-    print(text[:500])
 
     document = Document(
         file_name=file.filename,
@@ -40,6 +41,17 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
     db.add(document)
     db.commit()
     db.refresh(document)
+
+    for index, chunk in enumerate(chunks):
+
+        document_chunk = DocumentChunk(
+                document_id=document.id,
+                chunk_text=chunk,
+                chunk_index=index
+                )
+        db.add(document_chunk)
+
+    db.commit()
 
     return {
         "id": str(document.id),

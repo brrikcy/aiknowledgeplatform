@@ -14,3 +14,17 @@ class Document(Base):
     status=Column(String,default="uploaded")
     text_content = Column(String, nullable=True)
     created_at=Column(DateTime, default=datetime.utcnow)
+
+class DocumentChunk(Base):
+
+    __tablename__ = "document_chunks"
+
+    id= Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    document_id = Column(UUID(as_uuid=True), nullable=False)
+
+    chunk_text = Column(String, nullable=False)
+
+    chunk_index = Column(String)
+
+    created_at = Column(DateTime, default=datetime.utcnow)

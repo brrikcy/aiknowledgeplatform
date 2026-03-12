@@ -15,6 +15,9 @@ def extract_text_from_pdf(file_path):
     for page in pdf:
         text += page.get_text()
 
+    if len(text.strip()) == 0:
+        print("Warning: No extractable text found")
+
     return text
 
 def extract_text_from_docx(file_path):

@@ -12,6 +12,7 @@ The goal of this project is to build a **production-style AI infrastructure plat
 
 - Ingesting enterprise documents
 - Extracting and processing document text
+- Chunking documents for semantic retrieval
 - Enabling semantic search over internal knowledge
 - Supporting Retrieval Augmented Generation (RAG)
 - Allowing AI agents to interact with company data
@@ -26,7 +27,8 @@ This project also serves as a **hands-on learning journey for building real-worl
 - Upload enterprise documents (PDF, DOCX, TXT)
 - Automatic document parsing
 - Text extraction from documents
-- Semantic chunking and embedding generation
+- Text chunking for retrieval
+- Embedding generation
 - Vector search using embeddings
 - LLM-powered question answering
 - AI agents interacting with enterprise knowledge
@@ -55,10 +57,10 @@ FastAPI Backend
   │      Chunking
   │        │
   │        ▼
-  │     Embeddings
-  │
-  ▼
-Vector Database (Qdrant)
+  │    Embeddings
+  │        │
+  │        ▼
+  │   Vector Database
   │
   ▼
 Retrieval (RAG)
@@ -86,13 +88,10 @@ Answers / AI Agents
 ### Vector Database (Planned)
 - Qdrant
 
-### AI / NLP (Planned)
-- Sentence Transformers
-- OpenAI / Local LLMs
-
-### Document Processing
+### AI / NLP
 - PyMuPDF
 - python-docx
+- Sentence Transformers (planned)
 
 ### Infrastructure
 - Docker
@@ -115,7 +114,8 @@ knowledge-ai-platform
 │   └── models.py
 │
 ├── services
-│   └── document_processor.py
+│   ├── document_processor.py
+│   └── text_chunker.py
 │
 ├── storage
 │   └── documents
@@ -264,15 +264,53 @@ Extract Text
 Store Extracted Text in Database
 ```
 
-The extracted text is stored in the `text_content` column of the `documents` table.
+---
 
-This marks the **beginning of the RAG pipeline**.
+## Day 7 — Text Chunking (RAG Preparation)
+
+Implemented **text chunking for semantic retrieval**.
+
+New table added:
+
+```
+document_chunks
+```
+
+Each document is split into multiple smaller pieces.
+
+Pipeline now becomes:
+
+```
+Upload Document
+      ↓
+Extract Text
+      ↓
+Chunk Text
+      ↓
+Store Chunks in Database
+```
+
+Example:
+
+```
+Document → 5000 words
+           ↓
+Chunks → 10–15 smaller text blocks
+```
+
+This prepares the system for:
+
+```
+Embedding generation
+Semantic search
+RAG retrieval
+```
 
 ---
 
 # Local Setup Instructions
 
-## 1 Install dependencies
+## Install dependencies
 
 ```
 pip install -r requirements.txt
@@ -280,7 +318,7 @@ pip install -r requirements.txt
 
 ---
 
-## 2 Start PostgreSQL using Docker
+## Start PostgreSQL using Docker
 
 ```
 docker run -d \
@@ -294,7 +332,7 @@ docker run -d \
 
 ---
 
-## 3 Run the backend server
+## Run the backend server
 
 ```
 uvicorn api.main:app --reload
@@ -302,7 +340,7 @@ uvicorn api.main:app --reload
 
 ---
 
-## 4 Open API documentation
+## Open API documentation
 
 ```
 http://localhost:8000/docs
@@ -318,24 +356,25 @@ http://localhost:8000/docs
 - Document CRUD APIs
 - Document upload system
 - Document text extraction
+- Text chunking
 
-## Week 2 — Document Processing
-- text chunking
-- document indexing
-- document processing pipeline
+## Week 2 — AI Retrieval Pipeline
+- Embedding generation
+- Vector database integration
+- Semantic search
 
-## Week 3 — Embedding Pipeline
-- embedding generation
-- vector database integration
-
-## Week 4 — RAG System
-- vector search
+## Week 3 — RAG System
+- Retrieval pipeline
 - LLM integration
 - question answering
 
-## Week 5 — AI Agents & SDK
-- agent tool execution
-- Python SDK
+## Week 4 — AI Agents
+- tool-based agents
+- orchestration layer
+
+## Week 5 — Developer SDK
+- Python client
+- integration examples
 
 ## Week 6 — Production Setup
 - Docker deployment
