@@ -2,15 +2,20 @@ from fastapi import APIRouter, Depends, UploadFile, File
 from services.document_processor import extract_text
 from services.text_chunker import chunk_text
 from services.embedding_service import embedding_service
+from services.vector_search import find_similiar_chunks
 from database.models import DocumentChunk
 from sqlalchemy.orm import Session
 import shutil
 import uuid
-
+from pydantic import BaseModel
 from database.db import get_db
 from database.models import Document
 
 router = APIRouter()
+
+
+class QueryRequest(BaseModel):
+    query : str
 
 
 @router.post("/documents")
@@ -109,3 +114,14 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     db.commit()
 
     return {"message": "Document deleted successfully"}
+
+
+@router.post("/search")
+def search_documents(request: QueryRequest, db: Session = Depends(get_db)):
+    query_embedding = embedding_service.generate_embedding(request.query)
+
+    chunks = db.query(DocumentChunk).all()
+
+    results = find_similar_chunks(query_embedding, chunks)
+
+    return results

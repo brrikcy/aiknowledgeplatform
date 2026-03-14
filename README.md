@@ -375,6 +375,78 @@ Retrieval Augmented Generation (RAG)
 
 ---
 
+## Day 9 — Semantic Search
+
+Implemented **vector similarity search** to retrieve relevant document chunks based on user queries.
+
+### New Service
+
+```
+services/vector_search.py
+```
+
+This service performs semantic similarity search using cosine similarity.
+
+### Retrieval Pipeline
+
+The system can now process user queries and retrieve relevant document chunks.
+
+```
+User Query
+     ↓
+Generate Query Embedding
+     ↓
+Load Chunk Embeddings
+     ↓
+Compute Cosine Similarity
+     ↓
+Return Top Matching Chunks
+```
+
+### API Endpoint
+
+New endpoint added:
+
+```
+POST /search
+```
+
+Example request:
+
+```
+{
+  "query": "What are the employee security policies?"
+}
+```
+
+Example response:
+
+```
+[
+  {
+    "chunk_text": "...relevant section from a document...",
+    "score": 0.82
+  },
+  {
+    "chunk_text": "...another relevant section...",
+    "score": 0.78
+  }
+]
+```
+
+### Implementation Details
+
+- Query embeddings generated using the same embedding model as document chunks
+- All chunk embeddings loaded from PostgreSQL
+- Similarity computed using cosine similarity
+- Top matching chunks returned as results
+
+This enables the system to perform **semantic retrieval over enterprise documents**.
+
+The next step will integrate **LLM reasoning using retrieved chunks (RAG pipeline)**.
+
+---
+
 # Local Setup Instructions
 
 ## Install dependencies
