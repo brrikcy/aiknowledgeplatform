@@ -1,4 +1,4 @@
-from sqlalchemy import Column,String,DateTime,Integer
+from sqlalchemy import Column,String,DateTime,Integer,JSON,Text
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
 import uuid
@@ -23,8 +23,10 @@ class DocumentChunk(Base):
 
     document_id = Column(UUID(as_uuid=True), nullable=False)
 
-    chunk_text = Column(String, nullable=False)
+    chunk_text = Column(Text, nullable=False)
 
     chunk_index = Column(Integer)
+
+    embedding = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -91,7 +91,7 @@ Answers / AI Agents
 ### AI / NLP
 - PyMuPDF
 - python-docx
-- Sentence Transformers (planned)
+- Sentence Transformers
 
 ### Infrastructure
 - Docker
@@ -115,7 +115,8 @@ knowledge-ai-platform
 │
 ├── services
 │   ├── document_processor.py
-│   └── text_chunker.py
+│   ├── text_chunker.py
+│   └── embedding_service.py
 │
 ├── storage
 │   └── documents
@@ -304,6 +305,72 @@ This prepares the system for:
 Embedding generation
 Semantic search
 RAG retrieval
+```
+
+---
+
+## Day 8 — Embedding Generation
+
+Implemented **vector embedding generation for document chunks**, enabling semantic search capabilities.
+
+A new service was created to generate embeddings for each chunk using a transformer-based sentence embedding model.
+
+New service:
+
+```
+services/embedding_service.py
+```
+
+Responsibilities:
+
+- Load the embedding model
+- Generate embeddings for text chunks
+- Convert embeddings into JSON-serializable format
+
+Embedding model used:
+
+```
+all-MiniLM-L6-v2
+```
+
+Embedding characteristics:
+
+```
+Vector dimension: 384
+CPU-optimized inference
+Designed for semantic similarity tasks
+```
+
+Updated ingestion pipeline:
+
+```
+Upload Document
+      ↓
+Save File
+      ↓
+Extract Text
+      ↓
+Chunk Text
+      ↓
+Generate Embedding for Each Chunk
+      ↓
+Store Chunks + Embeddings in Database
+```
+
+Database update:
+
+The `document_chunks` table now includes an **embedding column**.
+
+```
+embedding (JSON)
+```
+
+Each chunk now stores its **384-dimension semantic vector representation**, enabling future implementation of:
+
+```
+Semantic similarity search
+Vector retrieval
+Retrieval Augmented Generation (RAG)
 ```
 
 ---

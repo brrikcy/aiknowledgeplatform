@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile, File
 from services.document_processor import extract_text
 from services.text_chunker import chunk_text
+from services.embedding_service import embedding_service
 from database.models import DocumentChunk
 from sqlalchemy.orm import Session
 import shutil
@@ -44,10 +45,13 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
 
     for index, chunk in enumerate(chunks):
 
+        embedding=embedding_service.generate_embedding(chunk)
+
         document_chunk = DocumentChunk(
                 document_id=document.id,
                 chunk_text=chunk,
-                chunk_index=index
+                chunk_index=index,
+                embedding=embedding
                 )
         db.add(document_chunk)
 
