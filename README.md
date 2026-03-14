@@ -447,6 +447,89 @@ The next step will integrate **LLM reasoning using retrieved chunks (RAG pipelin
 
 ---
 
+## Day 10 — Retrieval Augmented Generation (RAG)
+
+Implemented the first **LLM-powered question answering system** over the document knowledge base.
+
+The system now performs **Retrieval-Augmented Generation (RAG)**.
+
+### New Service
+
+```
+services/rag_service.py
+```
+
+This service integrates document retrieval with a language model to generate answers.
+
+### RAG Pipeline
+
+```
+User Question
+      ↓
+Generate Query Embedding
+      ↓
+Retrieve Relevant Chunks
+      ↓
+Build Context
+      ↓
+Send Context + Question to LLM
+      ↓
+Generate Final Answer
+```
+
+### LLM Model
+
+```
+google/flan-t5-base
+```
+
+The model runs **locally using HuggingFace Transformers**.
+
+Characteristics:
+
+```
+Instruction-tuned
+CPU friendly
+Good for question answering tasks
+```
+
+### New Endpoint
+
+```
+POST /ask
+```
+
+Example request:
+
+```
+{
+  "query": "What are the company security policies?"
+}
+```
+
+Example response:
+
+```
+{
+  "question": "What are the company security policies?",
+  "answer": "Employees must follow company security policies including rotating passwords every 90 days and wearing access badges.",
+  "context": [
+      "Employees must follow company security policies...",
+      "Passwords must be rotated every 90 days..."
+  ]
+}
+```
+
+### Key Features Implemented
+
+- Retrieval-Augmented Generation (RAG)
+- Context-aware AI responses
+- Integration of vector search with LLM reasoning
+- Fully local AI inference (no external APIs)
+
+The system is now capable of acting as an **AI assistant over enterprise documents**.
+
+---
 # Local Setup Instructions
 
 ## Install dependencies

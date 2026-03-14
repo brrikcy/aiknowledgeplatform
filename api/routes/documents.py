@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, UploadFile, File
 from services.document_processor import extract_text
 from services.text_chunker import chunk_text
 from services.embedding_service import embedding_service
-from services.vector_search import find_similiar_chunks
+from services.vector_search import find_similar_chunks
+from services.rag_service import generate_answer
 from database.models import DocumentChunk
 from sqlalchemy.orm import Session
 import shutil
@@ -125,3 +126,18 @@ def search_documents(request: QueryRequest, db: Session = Depends(get_db)):
     results = find_similar_chunks(query_embedding, chunks)
 
     return results
+
+@router.post("/ask")
+def ask_question(request: QueryRequest, db: Session = Depends(get_db)):
+
+    query_embedding = embedding_service.generate_embedding(request.query)
+    chunks = db.query(DocumentChunk).all()
+    search_results = find_similar_chunks(query_embedding , chunks)
+    context_chunks=[r["chunk_text"] for r in search_results]
+    answer=generate_answer(request.query,context_chunks)
+
+    return { 
+    "question" : request.query,
+    "answer" : answer,
+    "context" : context_chunks
+    }
