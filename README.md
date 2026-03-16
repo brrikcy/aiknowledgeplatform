@@ -10,66 +10,69 @@ The platform runs **entirely inside the organization's infrastructure**, ensurin
 
 The goal of this project is to build a **production-style AI infrastructure platform** capable of:
 
-- Ingesting enterprise documents
-- Extracting and processing document text
-- Chunking documents for semantic retrieval
-- Enabling semantic search over internal knowledge
-- Supporting Retrieval Augmented Generation (RAG)
-- Allowing AI agents to interact with company data
-- Running fully locally using containerized infrastructure
+* Ingesting enterprise documents
+* Extracting and processing document text
+* Chunking documents for semantic retrieval
+* Generating semantic embeddings
+* Enabling semantic search over internal knowledge
+* Supporting Retrieval Augmented Generation (RAG)
+* Allowing AI agents to interact with company data
+* Running fully locally using containerized infrastructure
 
 This project also serves as a **hands-on learning journey for building real-world AI systems**, covering backend development, vector databases, RAG pipelines, and AI orchestration.
 
 ---
 
-# Core Features (Planned)
+# Core Features
 
-- Upload enterprise documents (PDF, DOCX, TXT)
-- Automatic document parsing
-- Text extraction from documents
-- Text chunking for retrieval
-- Embedding generation
-- Vector search using embeddings
-- LLM-powered question answering
-- AI agents interacting with enterprise knowledge
-- Python SDK for developer integration
-- Fully local deployment using Docker
+* Upload enterprise documents (PDF, DOCX, TXT)
+* Automatic document parsing
+* Text extraction from documents
+* Text chunking for retrieval
+* Embedding generation using transformer models
+* Vector similarity search
+* LLM-powered question answering
+* Fully local AI inference
+* Containerized infrastructure
 
 ---
 
-# System Architecture (Planned)
+# System Architecture
 
 ```
 Users
-  │
-  ▼
+  |
+  v
 FastAPI Backend
-  │
-  ├── Document Upload
-  │        │
-  │        ▼
-  │    Local Storage
-  │        │
-  │        ▼
-  │    Text Extraction
-  │        │
-  │        ▼
-  │      Chunking
-  │        │
-  │        ▼
-  │    Embeddings
-  │        │
-  │        ▼
-  │   Vector Database
-  │
-  ▼
-Retrieval (RAG)
-  │
-  ▼
-LLM Reasoning
-  │
-  ▼
-Answers / AI Agents
+  |
+  |-- Document Upload
+  |        |
+  |        v
+  |    Local Storage
+  |        |
+  |        v
+  |    Text Extraction
+  |        |
+  |        v
+  |      Chunking
+  |        |
+  |        v
+  |   Embedding Generation
+  |        |
+  |        v
+  |    Vector Database (Qdrant)
+  |
+  v
+Semantic Retrieval
+  |
+  v
+Context Builder
+  |
+  v
+LLM (FLAN-T5)
+  |
+  v
+Generated Answer
 ```
 
 ---
@@ -77,25 +80,33 @@ Answers / AI Agents
 # Technology Stack
 
 ### Backend
-- Python
-- FastAPI
-- Pydantic
+
+* Python
+* FastAPI
+* Pydantic
 
 ### Database
-- PostgreSQL
-- SQLAlchemy
 
-### Vector Database (Planned)
-- Qdrant
+* PostgreSQL
+* SQLAlchemy
+
+### Vector Database
+
+* Qdrant
 
 ### AI / NLP
-- PyMuPDF
-- python-docx
-- Sentence Transformers
+
+* Sentence Transformers (all-MiniLM-L6-v2)
+* HuggingFace Transformers
+* PyTorch
+* PyMuPDF
+* python-docx
 
 ### Infrastructure
-- Docker
-- Docker Compose
+
+* Docker
+* Docker Compose
+* WSL (development environment)
 
 ---
 
@@ -103,28 +114,31 @@ Answers / AI Agents
 
 ```
 knowledge-ai-platform
-│
-├── api
-│   ├── main.py
-│   └── routes
-│        └── documents.py
-│
-├── database
-│   ├── db.py
-│   └── models.py
-│
-├── services
-│   ├── document_processor.py
-│   ├── text_chunker.py
-│   └── embedding_service.py
-│
-├── storage
-│   └── documents
-│
-├── scripts
-│
-├── requirements.txt
-└── README.md
+|
+|-- api
+|   |-- main.py
+|   \-- routes
+|        \-- documents.py
+|
+|-- database
+|   |-- db.py
+|   \-- models.py
+|
+|-- services
+|   |-- document_processor.py
+|   |-- text_chunker.py
+|   |-- embedding_service.py
+|   |-- vector_search.py
+|   |-- rag_service.py
+|   \-- qdrant_service.py
+|
+|-- storage
+|   \-- documents
+|
+|-- scripts
+|
+|-- requirements.txt
+\-- README.md
 ```
 
 ---
@@ -133,9 +147,9 @@ knowledge-ai-platform
 
 ## Day 1 — Backend Setup
 
-- Project repository created
-- FastAPI backend initialized
-- Swagger API documentation enabled
+* Project repository created
+* FastAPI backend initialized
+* Swagger API documentation enabled
 
 Endpoint:
 
@@ -153,9 +167,9 @@ Response:
 
 ## Day 2 — Database Integration
 
-- PostgreSQL running via Docker
-- SQLAlchemy database connection implemented
-- Database connectivity verified
+* PostgreSQL running via Docker
+* SQLAlchemy database connection implemented
+* Database connectivity verified
 
 Endpoint:
 
@@ -175,10 +189,10 @@ Response:
 
 Implemented:
 
-- SQLAlchemy Base model
-- `documents` table
-- Database session dependency
-- API to insert document records
+* SQLAlchemy Base model
+* documents table
+* Database session dependency
+* API to insert document records
 
 Endpoint:
 
@@ -201,25 +215,11 @@ GET    /documents/{document_id}
 DELETE /documents/{document_id}
 ```
 
-Capabilities:
-
-- Create document records
-- List stored documents
-- Retrieve individual document metadata
-- Delete documents
-
 ---
 
 ## Day 5 — Document Upload System
 
-Implemented **real document upload functionality**.
-
-Features added:
-
-- File upload API
-- Local document storage
-- Unique filename generation using UUID
-- File type validation
+Implemented real document upload functionality.
 
 Allowed file types:
 
@@ -229,7 +229,7 @@ docx
 txt
 ```
 
-Uploaded files are stored in:
+Storage location:
 
 ```
 storage/documents/
@@ -239,12 +239,6 @@ storage/documents/
 
 ## Day 6 — Document Text Extraction
 
-Implemented the **document processing service**.
-
-New capability:
-
-- Extract text from uploaded documents
-
 Supported formats:
 
 ```
@@ -253,331 +247,166 @@ DOCX
 TXT
 ```
 
-Pipeline implemented:
+Pipeline:
 
 ```
 Upload Document
-      ↓
+      |
+      v
 Save File
-      ↓
+      |
+      v
 Extract Text
-      ↓
-Store Extracted Text in Database
+      |
+      v
+Store Extracted Text
 ```
 
 ---
 
-## Day 7 — Text Chunking (RAG Preparation)
+## Day 7 — Text Chunking
 
-Implemented **text chunking for semantic retrieval**.
-
-New table added:
+Added table:
 
 ```
 document_chunks
 ```
 
-Each document is split into multiple smaller pieces.
-
-Pipeline now becomes:
+Pipeline:
 
 ```
 Upload Document
-      ↓
+      |
+      v
 Extract Text
-      ↓
+      |
+      v
 Chunk Text
-      ↓
-Store Chunks in Database
-```
-
-Example:
-
-```
-Document → 5000 words
-           ↓
-Chunks → 10–15 smaller text blocks
-```
-
-This prepares the system for:
-
-```
-Embedding generation
-Semantic search
-RAG retrieval
+      |
+      v
+Store Chunks
 ```
 
 ---
 
 ## Day 8 — Embedding Generation
 
-Implemented **vector embedding generation for document chunks**, enabling semantic search capabilities.
-
-A new service was created to generate embeddings for each chunk using a transformer-based sentence embedding model.
-
-New service:
-
-```
-services/embedding_service.py
-```
-
-Responsibilities:
-
-- Load the embedding model
-- Generate embeddings for text chunks
-- Convert embeddings into JSON-serializable format
-
-Embedding model used:
+Model:
 
 ```
 all-MiniLM-L6-v2
 ```
 
-Embedding characteristics:
+Vector size:
 
 ```
-Vector dimension: 384
-CPU-optimized inference
-Designed for semantic similarity tasks
+384
 ```
 
-Updated ingestion pipeline:
+Pipeline:
 
 ```
 Upload Document
-      ↓
-Save File
-      ↓
+      |
+      v
 Extract Text
-      ↓
+      |
+      v
 Chunk Text
-      ↓
-Generate Embedding for Each Chunk
-      ↓
-Store Chunks + Embeddings in Database
-```
-
-Database update:
-
-The `document_chunks` table now includes an **embedding column**.
-
-```
-embedding (JSON)
-```
-
-Each chunk now stores its **384-dimension semantic vector representation**, enabling future implementation of:
-
-```
-Semantic similarity search
-Vector retrieval
-Retrieval Augmented Generation (RAG)
+      |
+      v
+Generate Embeddings
+      |
+      v
+Store Embeddings
 ```
 
 ---
 
-## Day 9 — Semantic Search
+## Day 9 — Semantic Search Prototype
 
-Implemented **vector similarity search** to retrieve relevant document chunks based on user queries.
-
-### New Service
-
-```
-services/vector_search.py
-```
-
-This service performs semantic similarity search using cosine similarity.
-
-### Retrieval Pipeline
-
-The system can now process user queries and retrieve relevant document chunks.
-
-```
-User Query
-     ↓
-Generate Query Embedding
-     ↓
-Load Chunk Embeddings
-     ↓
-Compute Cosine Similarity
-     ↓
-Return Top Matching Chunks
-```
-
-### API Endpoint
-
-New endpoint added:
+Endpoint:
 
 ```
 POST /search
 ```
 
-Example request:
+Pipeline:
 
 ```
-{
-  "query": "What are the employee security policies?"
-}
+Query -> Embedding -> Cosine Similarity -> Top Chunks
 ```
-
-Example response:
-
-```
-[
-  {
-    "chunk_text": "...relevant section from a document...",
-    "score": 0.82
-  },
-  {
-    "chunk_text": "...another relevant section...",
-    "score": 0.78
-  }
-]
-```
-
-### Implementation Details
-
-- Query embeddings generated using the same embedding model as document chunks
-- All chunk embeddings loaded from PostgreSQL
-- Similarity computed using cosine similarity
-- Top matching chunks returned as results
-
-This enables the system to perform **semantic retrieval over enterprise documents**.
-
-The next step will integrate **LLM reasoning using retrieved chunks (RAG pipeline)**.
 
 ---
 
-## Day 10 — Retrieval Augmented Generation (RAG)
+## Day 10 — Retrieval Augmented Generation
 
-Implemented the first **LLM-powered question answering system** over the document knowledge base.
-
-The system now performs **Retrieval-Augmented Generation (RAG)**.
-
-### New Service
-
-```
-services/rag_service.py
-```
-
-This service integrates document retrieval with a language model to generate answers.
-
-### RAG Pipeline
-
-```
-User Question
-      ↓
-Generate Query Embedding
-      ↓
-Retrieve Relevant Chunks
-      ↓
-Build Context
-      ↓
-Send Context + Question to LLM
-      ↓
-Generate Final Answer
-```
-
-### LLM Model
+Model:
 
 ```
 google/flan-t5-base
 ```
 
-The model runs **locally using HuggingFace Transformers**.
-
-Characteristics:
-
-```
-Instruction-tuned
-CPU friendly
-Good for question answering tasks
-```
-
-### New Endpoint
+Endpoint:
 
 ```
 POST /ask
 ```
 
-Example request:
+Pipeline:
 
 ```
-{
-  "query": "What are the company security policies?"
-}
+Question
+   |
+   v
+Embedding
+   |
+   v
+Chunk Retrieval
+   |
+   v
+Context
+   |
+   v
+LLM
+   |
+   v
+Answer
 ```
-
-Example response:
-
-```
-{
-  "question": "What are the company security policies?",
-  "answer": "Employees must follow company security policies including rotating passwords every 90 days and wearing access badges.",
-  "context": [
-      "Employees must follow company security policies...",
-      "Passwords must be rotated every 90 days..."
-  ]
-}
-```
-
-### Key Features Implemented
-
-- Retrieval-Augmented Generation (RAG)
-- Context-aware AI responses
-- Integration of vector search with LLM reasoning
-- Fully local AI inference (no external APIs)
-
-The system is now capable of acting as an **AI assistant over enterprise documents**.
 
 ---
 
-## Day 11 — Vector Database Integration and RAG Pipeline
+## Day 11 — Vector Database Integration
 
-Integrated a vector database to enable efficient semantic retrieval.
+Vector database:
 
-Vector Database:
+```
 Qdrant
+```
 
-Features implemented:
+Pipeline:
 
-- Qdrant vector database running in Docker
-- Automatic collection creation
-- Vector storage during document ingestion
-- Payload metadata linking vectors to document chunks
-- Approximate nearest neighbor (ANN) vector search
-- Retrieval of relevant chunks from PostgreSQL
-- Context assembly from retrieved chunks
-- RAG-based answer generation using FLAN-T5
-
-Updated ingestion pipeline:
-
-Upload Document
-      ↓
-Save File
-      ↓
-Extract Text
-      ↓
-Chunk Text
-      ↓
-Generate Embeddings
-      ↓
-Store Embeddings in Qdrant
-      ↓
-Store Chunks in PostgreSQL
-
-Query pipeline:
-
-User Question
-      ↓
-Generate Query Embedding
-      ↓
-Vector Search (Qdrant)
-      ↓
-Retrieve Relevant Chunks
-      ↓
-Construct Context
-      ↓
-Generate Answer using LLM
+```
+Question
+   |
+   v
+Embedding
+   |
+   v
+Qdrant Vector Search
+   |
+   v
+Retrieve Chunks
+   |
+   v
+Build Context
+   |
+   v
+LLM
+   |
+   v
+Answer
+```
 
 ---
 
@@ -591,7 +420,7 @@ pip install -r requirements.txt
 
 ---
 
-## Start PostgreSQL using Docker
+## Start PostgreSQL
 
 ```
 docker run -d \
@@ -605,7 +434,18 @@ docker run -d \
 
 ---
 
-## Run the backend server
+## Start Qdrant
+
+```
+docker run -d \
+  --name knowledge-qdrant \
+  -p 6333:6333 \
+  qdrant/qdrant
+```
+
+---
+
+## Run backend
 
 ```
 uvicorn api.main:app --reload
@@ -613,7 +453,7 @@ uvicorn api.main:app --reload
 
 ---
 
-## Open API documentation
+## Open API docs
 
 ```
 http://localhost:8000/docs
@@ -623,50 +463,56 @@ http://localhost:8000/docs
 
 # Development Roadmap
 
-## Week 1 — Backend Foundation
-- FastAPI setup
-- PostgreSQL integration
-- Document CRUD APIs
-- Document upload system
-- Document text extraction
-- Text chunking
+### Week 1 — Backend Foundation
 
-## Week 2 — AI Retrieval Pipeline
-- Embedding generation
-- Vector database integration
-- Semantic search
+* FastAPI
+* PostgreSQL
+* Upload system
+* Text extraction
+* Chunking
 
-## Week 3 — RAG System
-- Retrieval pipeline
-- LLM integration
-- question answering
+### Week 2 — AI Retrieval Pipeline
 
-## Week 4 — AI Agents
-- tool-based agents
-- orchestration layer
+* Embeddings
+* Vector database
+* Semantic search
 
-## Week 5 — Developer SDK
-- Python client
-- integration examples
+### Week 3 — RAG System
 
-## Week 6 — Production Setup
-- Docker deployment
-- Redis caching
-- system optimization
+* Retrieval pipeline
+* LLM integration
+
+### Week 4 — AI Agents
+
+* Tool-based agents
+* Orchestration layer
+
+### Week 5 — Developer SDK
+
+* Python client
+* Integration examples
+
+### Week 6 — Production Setup
+
+* Docker deployment
+* Redis caching
+* System optimization
 
 ---
 
 # Future Improvements
 
-- AI agent orchestration
-- web dashboard
-- observability (metrics & logs)
-- Kubernetes deployment
-- multi-tenant architecture
+* AI agent orchestration
+* Web dashboard
+* Observability (metrics & logs)
+* Kubernetes deployment
+* Multi-tenant architecture
+* Hybrid retrieval (BM25 + vector search)
 
 ---
 
 # Author
 
-Ajmal  
+Ajmal
 AI Engineer | MSc Artificial Intelligence & Machine Learning
+
