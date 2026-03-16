@@ -530,6 +530,57 @@ Example response:
 The system is now capable of acting as an **AI assistant over enterprise documents**.
 
 ---
+
+## Day 11 — Vector Database Integration and RAG Pipeline
+
+Integrated a vector database to enable efficient semantic retrieval.
+
+Vector Database:
+Qdrant
+
+Features implemented:
+
+- Qdrant vector database running in Docker
+- Automatic collection creation
+- Vector storage during document ingestion
+- Payload metadata linking vectors to document chunks
+- Approximate nearest neighbor (ANN) vector search
+- Retrieval of relevant chunks from PostgreSQL
+- Context assembly from retrieved chunks
+- RAG-based answer generation using FLAN-T5
+
+Updated ingestion pipeline:
+
+Upload Document
+      ↓
+Save File
+      ↓
+Extract Text
+      ↓
+Chunk Text
+      ↓
+Generate Embeddings
+      ↓
+Store Embeddings in Qdrant
+      ↓
+Store Chunks in PostgreSQL
+
+Query pipeline:
+
+User Question
+      ↓
+Generate Query Embedding
+      ↓
+Vector Search (Qdrant)
+      ↓
+Retrieve Relevant Chunks
+      ↓
+Construct Context
+      ↓
+Generate Answer using LLM
+
+---
+
 # Local Setup Instructions
 
 ## Install dependencies

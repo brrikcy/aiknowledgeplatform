@@ -4,6 +4,9 @@ from services.text_chunker import chunk_text
 from services.embedding_service import embedding_service
 from services.vector_search import find_similar_chunks
 from services.rag_service import generate_answer
+from services.qdrant_service import qdrant, COLLECTION_NAME
+from qdrant_client.http.models import PointStruct
+
 from database.models import DocumentChunk
 from sqlalchemy.orm import Session
 import shutil
@@ -60,9 +63,25 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
                 embedding=embedding
                 )
         db.add(document_chunk)
+        db.flush()
+
+        vector_id = f"{document.id}_{index}"
+        qdrant.upsert(
+                collection_name = COLLECTION_NAME,
+                points=[
+                    PointStruct(
+                        id=str(document_chunk.id),
+                        vector=embedding,
+                        payload={
+                            "document_id" : str(document.id),
+                            "chunk_index" : index
+                            }
+                        )
+                    ]
+                )
+
 
     db.commit()
-
     return {
         "id": str(document.id),
         "file_name": document.file_name,
@@ -121,9 +140,7 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
 def search_documents(request: QueryRequest, db: Session = Depends(get_db)):
     query_embedding = embedding_service.generate_embedding(request.query)
 
-    chunks = db.query(DocumentChunk).all()
-
-    results = find_similar_chunks(query_embedding, chunks)
+    results = find_similar_chunks(query_embedding, db)
 
     return results
 
@@ -131,10 +148,16 @@ def search_documents(request: QueryRequest, db: Session = Depends(get_db)):
 def ask_question(request: QueryRequest, db: Session = Depends(get_db)):
 
     query_embedding = embedding_service.generate_embedding(request.query)
-    chunks = db.query(DocumentChunk).all()
-    search_results = find_similar_chunks(query_embedding , chunks)
+    search_results = find_similar_chunks(query_embedding , db)
     context_chunks=[r["chunk_text"] for r in search_results]
     answer=generate_answer(request.query,context_chunks)
+
+    if not context_chunks:
+        return {
+                "question" : request.query,
+                "answer" : "No relevant documents found",
+                "context" : []
+                }
 
     return { 
     "question" : request.query,

@@ -1,35 +1,59 @@
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
+from services.qdrant_service import qdrant, COLLECTION_NAME
+from database.models import DocumentChunk
+import uuid
 
 
-def find_similar_chunks(query_embedding, chunks, top_k=5):
+def find_similar_chunks(query_embedding, db, top_k=5):
 
-    chunk_embeddings=[]
-    chunk_texts=[]
+    print("\n==== VECTOR SEARCH START ====")
 
-    for chunk in chunks:
-        if chunk.embedding is None:
+    print("Query embedding length:", len(query_embedding))
+
+    search_result = qdrant.query_points(
+        collection_name=COLLECTION_NAME,
+        query=query_embedding,
+        limit=top_k
+    )
+
+    print("\nQdrant raw result:")
+    print(search_result)
+
+    results = []
+
+    for hit in search_result.points:
+
+        print("\n--- HIT ---")
+        print("Hit ID:", hit.id)
+        print("Score:", hit.score)
+        print("Payload:", hit.payload)
+
+        payload = hit.payload
+
+        try:
+            document_id = uuid.UUID(payload["document_id"])
+        except Exception as e:
+            print("UUID conversion failed:", e)
             continue
-        chunk_embeddings.append(chunk.embedding)
-        chunk_texts.append(chunk.chunk_text)
 
-    if len(chunk_embeddings) ==0:
-        return []
+        chunk_index = payload["chunk_index"]
 
-    chunk_embeddings= np.array(chunk_embeddings)
-    query_embedding = np.array(query_embedding).reshape(1,-1)
+        print("Converted document_id:", document_id)
+        print("Chunk index:", chunk_index)
 
-    
+        chunk = db.query(DocumentChunk).filter(
+            DocumentChunk.document_id == document_id,
+            DocumentChunk.chunk_index == chunk_index
+        ).first()
 
-    similarities = cosine_similarity(query_embedding, chunk_embeddings)[0]
+        print("DB query result:", chunk)
 
-    top_indices = similarities.argsort()[-top_k:][::-1]
-
-    results=[]
-
-    for idx in top_indices:
-        results.append({
-            "chunk_text" : chunk_texts[idx],
-            "score": float(similarities[idx])
+        if chunk:
+            results.append({
+                "chunk_text": chunk.chunk_text,
+                "chunk_index": chunk.chunk_index
             })
+
+    print("\nFinal retrieved chunks:", results)
+    print("==== VECTOR SEARCH END ====\n")
+
     return results

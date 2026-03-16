@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from database.db import engine, Base
 from database import models
+from services.qdrant_service import create_collection
 
 from api.routes import documents
 
@@ -10,6 +11,8 @@ app = FastAPI(
 )
 
 Base.metadata.create_all(bind=engine)
+
+create_collection()
 
 app.include_router(documents.router)
 
