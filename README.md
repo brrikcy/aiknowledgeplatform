@@ -410,6 +410,42 @@ Answer
 
 ---
 
+## Day 12 — Retrieval Optimization and Context Engineering
+
+Improved the retrieval and generation pipeline to make the system more efficient and production-ready.
+
+Key improvements:
+
+- Removed PostgreSQL dependency from retrieval pipeline
+- Switched to fully vector-based retrieval using Qdrant payloads
+- Stored chunk text directly inside Qdrant payload
+- Eliminated redundant database queries during search
+- Implemented score-based filtering of retrieved chunks
+- Added ranking and selection of top relevant chunks
+- Reduced context size for better LLM performance
+- Improved prompt engineering for better answer quality
+- Increased output quality with structured responses
+
+Updated pipeline:
+
+User Question  
+      ↓  
+Generate Query Embedding  
+      ↓  
+Qdrant Vector Search  
+      ↓  
+Filter + Rank Results  
+      ↓  
+Select Top Chunks  
+      ↓  
+Build Optimized Context  
+      ↓  
+Generate Answer using LLM  
+
+The system is now significantly faster, cleaner, and closer to production-grade AI systems.
+
+---
+
 # Local Setup Instructions
 
 ## Install dependencies

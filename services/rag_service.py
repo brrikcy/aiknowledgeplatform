@@ -7,10 +7,15 @@ model= AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
 def generate_answer(question, context_chunks):
 
-    context_text = "\n\n".join(context_chunks)
-
+    context_text = "\n\n".join([
+    f"Chunk {i+1}:\n{chunk}"
+    for i, chunk in enumerate(context_chunks)
+])
     prompt = f"""
-Answer the question using the context below.
+Read the context and answer the question.
+
+If the answer is not directly supported by the context, say:
+"The information is not available in the provided documents"
 
 Context:
 {context_text}
@@ -18,16 +23,17 @@ Context:
 Question:
 {question}
 
-Provide a clear sentence answering the question based only on the context.
+Answer (based only on the context):
 """
 
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True)
 
     outputs = model.generate(
         **inputs,
-        max_new_tokens=80,
+        max_new_tokens=200,
         num_beams=4,
-        early_stopping=True
+        early_stopping=True,
+        temperature =0.3
     )
 
     answer = tokenizer.decode(outputs[0], skip_special_tokens=True)

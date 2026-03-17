@@ -1,9 +1,7 @@
 from services.qdrant_service import qdrant, COLLECTION_NAME
-from database.models import DocumentChunk
-import uuid
 
 
-def find_similar_chunks(query_embedding, db, top_k=5):
+def find_similar_chunks(query_embedding,top_k=5):
 
     print("\n==== VECTOR SEARCH START ====")
 
@@ -21,39 +19,24 @@ def find_similar_chunks(query_embedding, db, top_k=5):
     results = []
 
     for hit in search_result.points:
-
+        score = hit.score
         print("\n--- HIT ---")
-        print("Hit ID:", hit.id)
-        print("Score:", hit.score)
+        print("Score:", score)
         print("Payload:", hit.payload)
 
-        payload = hit.payload
+        chunk_text = hit.payload.get("chunk_text")
 
-        try:
-            document_id = uuid.UUID(payload["document_id"])
-        except Exception as e:
-            print("UUID conversion failed:", e)
+        if score < 0.2:
             continue
 
-        chunk_index = payload["chunk_index"]
-
-        print("Converted document_id:", document_id)
-        print("Chunk index:", chunk_index)
-
-        chunk = db.query(DocumentChunk).filter(
-            DocumentChunk.document_id == document_id,
-            DocumentChunk.chunk_index == chunk_index
-        ).first()
-
-        print("DB query result:", chunk)
-
-        if chunk:
+        if chunk_text:
             results.append({
-                "chunk_text": chunk.chunk_text,
-                "chunk_index": chunk.chunk_index
-            })
-
-    print("\nFinal retrieved chunks:", results)
+                "chunk_text" : chunk_text,
+                "score" : score
+                })
+    
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
+    print("\nFiltered + sorted  chunks:", results)
     print("==== VECTOR SEARCH END ====\n")
 
     return results

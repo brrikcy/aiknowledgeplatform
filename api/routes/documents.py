@@ -7,13 +7,13 @@ from services.rag_service import generate_answer
 from services.qdrant_service import qdrant, COLLECTION_NAME
 from qdrant_client.http.models import PointStruct
 
-from database.models import DocumentChunk
 from sqlalchemy.orm import Session
 import shutil
+import os
 import uuid
 from pydantic import BaseModel
 from database.db import get_db
-from database.models import Document
+from database.models import Document,DocumentChunk
 
 router = APIRouter()
 
@@ -33,6 +33,7 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
         return {"error": "File type not allowed"}
 
     unique_filename = f"{uuid.uuid4()}_{file.filename}"
+    os.makedirs("storage/documents", exist_ok=True)
     file_location = f"storage/documents/{unique_filename}"
 
     with open(file_location, "wb") as buffer:
@@ -74,7 +75,8 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
                         vector=embedding,
                         payload={
                             "document_id" : str(document.id),
-                            "chunk_index" : index
+                            "chunk_index" : index,
+                            "chunk_text" : chunk
                             }
                         )
                     ]
@@ -140,7 +142,7 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
 def search_documents(request: QueryRequest, db: Session = Depends(get_db)):
     query_embedding = embedding_service.generate_embedding(request.query)
 
-    results = find_similar_chunks(query_embedding, db)
+    results = find_similar_chunks(query_embedding)
 
     return results
 
@@ -148,8 +150,8 @@ def search_documents(request: QueryRequest, db: Session = Depends(get_db)):
 def ask_question(request: QueryRequest, db: Session = Depends(get_db)):
 
     query_embedding = embedding_service.generate_embedding(request.query)
-    search_results = find_similar_chunks(query_embedding , db)
-    context_chunks=[r["chunk_text"] for r in search_results]
+    search_results = find_similar_chunks(query_embedding)
+    context_chunks=[r["chunk_text"] for r in search_results[:3]]
     answer=generate_answer(request.query,context_chunks)
 
     if not context_chunks:
