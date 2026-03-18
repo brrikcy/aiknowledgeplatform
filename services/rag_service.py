@@ -30,7 +30,7 @@ Answer (based only on the context):
 
     outputs = model.generate(
         **inputs,
-        max_new_tokens=200,
+        max_new_tokens=500,
         num_beams=4,
         early_stopping=True,
         temperature =0.3

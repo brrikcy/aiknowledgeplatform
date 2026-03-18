@@ -16,6 +16,7 @@ The goal of this project is to build a **production-style AI infrastructure plat
 * Generating semantic embeddings
 * Enabling semantic search over internal knowledge
 * Supporting Retrieval Augmented Generation (RAG)
+* Hybrid retrieval combining vector search and keyword search
 * Allowing AI agents to interact with company data
 * Running fully locally using containerized infrastructure
 
@@ -31,6 +32,8 @@ This project also serves as a **hands-on learning journey for building real-worl
 * Text chunking for retrieval
 * Embedding generation using transformer models
 * Vector similarity search
+* BM25 keyword search
+* Hybrid search with Reciprocal Rank Fusion (RRF)
 * LLM-powered question answering
 * Fully local AI inference
 * Containerized infrastructure
@@ -63,16 +66,28 @@ FastAPI Backend
   |    Vector Database (Qdrant)
   |
   v
-Semantic Retrieval
+User Query
   |
   v
-Context Builder
+Generate Query Embedding
   |
   v
-LLM (FLAN-T5)
-  |
-  v
-Generated Answer
+┌──────────────────────────────┐
+│  Vector Search (semantic)    │
+│  BM25 Search (keyword)       │
+└─────────────┬────────────────┘
+              |
+              v
+  Reciprocal Rank Fusion (RRF)
+              |
+              v
+       Top-K Fused Chunks
+              |
+              v
+      Build Optimized Context
+              |
+              v
+     Generate Answer (LLM)
 ```
 
 ---
@@ -102,6 +117,11 @@ Generated Answer
 * PyMuPDF
 * python-docx
 
+### Retrieval
+
+* rank_bm25 (BM25Okapi)
+* Reciprocal Rank Fusion
+
 ### Infrastructure
 
 * Docker
@@ -129,6 +149,8 @@ knowledge-ai-platform
 |   |-- text_chunker.py
 |   |-- embedding_service.py
 |   |-- vector_search.py
+|   |-- bm25_service.py
+|   |-- hybrid_search.py
 |   |-- rag_service.py
 |   \-- qdrant_service.py
 |
@@ -446,6 +468,52 @@ The system is now significantly faster, cleaner, and closer to production-grade 
 
 ---
 
+## Day 13 — Hybrid Search (BM25 + Vector)
+
+Implemented hybrid retrieval combining semantic vector search with keyword-based BM25 search using Reciprocal Rank Fusion.
+
+Key implementations:
+
+- Added BM25 keyword search service using rank_bm25
+- BM25 retriever pulls chunk corpus from Qdrant (no PostgreSQL dependency)
+- Created hybrid search service with Reciprocal Rank Fusion (RRF, k=60)
+- Fuses results from both retrievers using rank-based scoring
+- Rewired /search and /ask endpoints to use hybrid retrieval
+- Removed unused database dependency from retrieval endpoints
+- Fixed empty context check order in /ask (now checked before LLM call)
+
+New files:
+
+```
+services/bm25_service.py
+services/hybrid_search.py
+```
+
+Updated retrieval pipeline:
+
+```
+User Query
+      ↓
+Generate Query Embedding
+      ↓
+┌──────────────────────────────┐
+│  Vector Search (semantic)    │
+│  BM25 Search (keyword)       │
+└─────────────┬────────────────┘
+              ↓
+  Reciprocal Rank Fusion (RRF)
+              ↓
+       Top-K Fused Chunks
+              ↓
+      Build Optimized Context
+              ↓
+     Generate Answer using LLM
+```
+
+The system now captures both semantic meaning and exact keyword matches, significantly improving retrieval quality for enterprise document search.
+
+---
+
 # Local Setup Instructions
 
 ## Install dependencies
@@ -517,6 +585,7 @@ http://localhost:8000/docs
 
 * Retrieval pipeline
 * LLM integration
+* Hybrid search
 
 ### Week 4 — AI Agents
 
@@ -538,12 +607,14 @@ http://localhost:8000/docs
 
 # Future Improvements
 
+* Better LLM integration
+* Reranking pipeline
 * AI agent orchestration
 * Web dashboard
 * Observability (metrics & logs)
 * Kubernetes deployment
 * Multi-tenant architecture
-* Hybrid retrieval (BM25 + vector search)
+* Streaming responses
 
 ---
 
@@ -551,4 +622,3 @@ http://localhost:8000/docs
 
 Ajmal
 AI Engineer | MSc Artificial Intelligence & Machine Learning
-

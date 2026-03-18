@@ -5,6 +5,7 @@ from services.embedding_service import embedding_service
 from services.vector_search import find_similar_chunks
 from services.rag_service import generate_answer
 from services.qdrant_service import qdrant, COLLECTION_NAME
+from services.hybrid_search import hybrid_search
 from qdrant_client.http.models import PointStruct
 
 from sqlalchemy.orm import Session
@@ -140,19 +141,16 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
 
 @router.post("/search")
 def search_documents(request: QueryRequest, db: Session = Depends(get_db)):
-    query_embedding = embedding_service.generate_embedding(request.query)
 
-    results = find_similar_chunks(query_embedding)
+    results = hybrid_search(request.query)
 
     return results
 
 @router.post("/ask")
 def ask_question(request: QueryRequest, db: Session = Depends(get_db)):
 
-    query_embedding = embedding_service.generate_embedding(request.query)
-    search_results = find_similar_chunks(query_embedding)
+    search_results = hybrid_search(request.query)
     context_chunks=[r["chunk_text"] for r in search_results[:3]]
-    answer=generate_answer(request.query,context_chunks)
 
     if not context_chunks:
         return {
@@ -160,6 +158,9 @@ def ask_question(request: QueryRequest, db: Session = Depends(get_db)):
                 "answer" : "No relevant documents found",
                 "context" : []
                 }
+    
+    
+    answer=generate_answer(request.query,context_chunks)
 
     return { 
     "question" : request.query,
