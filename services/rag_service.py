@@ -1,41 +1,43 @@
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from llama_cpp import Llama
 
-model_name = "google/flan-t5-base"
+MODEL_PATH = "llm_models/Phi-3-mini-4k-instruct-Q4_K_M.gguf"
 
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model= AutoModelForSeq2SeqLM.from_pretrained(model_name)
+llm = Llama(
+    model_path=MODEL_PATH,
+    n_ctx=4096,
+    n_batch=512,
+    n_threads=4,
+    verbose=False
+)
 
-def generate_answer(question, context_chunks):
-
-    context_text = "\n\n".join([
-    f"Chunk {i+1}:\n{chunk}"
-    for i, chunk in enumerate(context_chunks)
-])
-    prompt = f"""
-Read the context and answer the question.
-
-If the answer is not directly supported by the context, say:
-"The information is not available in the provided documents"
-
-Context:
-{context_text}
-
-Question:
-{question}
-
-Answer (based only on the context):
-"""
-
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True)
-
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=500,
-        num_beams=4,
-        early_stopping=True,
-        temperature =0.3
+def generate_answer(question: str, context_chunks: list[str]) -> str:
+    context_text = "\n\n".join(
+        f"Chunk {i+1}:\n{chunk}" for i, chunk in enumerate(context_chunks)
     )
 
-    answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    if len(context_text) > 2000:
+        context_text = context_text[:2000]
 
+    response = llm.create_chat_completion(
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful assistant. Answer the question using ONLY "
+                    "the provided context. If the answer is not in the context, "
+                    "say exactly: 'The information is not available in the provided documents.'"
+                )
+            },
+            {
+                "role": "user",
+                "content": f"Context:\n{context_text}\n\nQuestion: {question}"
+            }
+        ],
+        max_tokens=200,
+        temperature=0.2,
+        top_p=0.95,
+        repeat_penalty=1.1
+    )
+
+    answer = response["choices"][0]["message"]["content"].strip()
     return answer
