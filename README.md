@@ -17,6 +17,7 @@ The goal of this project is to build a **production-style AI infrastructure plat
 * Enabling semantic search over internal knowledge
 * Supporting Retrieval Augmented Generation (RAG)
 * Hybrid retrieval combining vector search and keyword search
+* Reranking retrieved chunks using a cross-encoder
 * Allowing AI agents to interact with company data
 * Running fully locally using containerized infrastructure
 
@@ -34,6 +35,7 @@ This project also serves as a **hands-on learning journey for building real-worl
 * Vector similarity search
 * BM25 keyword search
 * Hybrid search with Reciprocal Rank Fusion (RRF)
+* Cross-encoder reranking of retrieved chunks
 * LLM-powered question answering
 * Fully local AI inference
 * Containerized infrastructure
@@ -41,6 +43,7 @@ This project also serves as a **hands-on learning journey for building real-worl
 ---
 
 # System Architecture
+
 ```
 Users
   |
@@ -80,7 +83,13 @@ Generate Query Embedding
   Reciprocal Rank Fusion (RRF)
               |
               v
-       Top-K Fused Chunks
+       Top-5 Fused Chunks
+              |
+              v
+   Cross-Encoder Reranking
+              |
+              v
+      Top-3 Reranked Chunks
               |
               v
       Build Optimized Context
@@ -111,6 +120,7 @@ Generate Query Embedding
 ### AI / NLP
 
 * Sentence Transformers (all-MiniLM-L6-v2)
+* Cross-Encoder (ms-marco-MiniLM-L-6-v2)
 * llama-cpp-python
 * PyMuPDF
 * python-docx
@@ -119,6 +129,7 @@ Generate Query Embedding
 
 * rank_bm25 (BM25Okapi)
 * Reciprocal Rank Fusion
+* Cross-Encoder Reranking
 
 ### Infrastructure
 
@@ -129,6 +140,7 @@ Generate Query Embedding
 ---
 
 # Project Structure
+
 ```
 knowledge-ai-platform
 |
@@ -148,6 +160,7 @@ knowledge-ai-platform
 |   |-- vector_search.py
 |   |-- bm25_service.py
 |   |-- hybrid_search.py
+|   |-- reranker_service.py
 |   |-- rag_service.py
 |   \-- qdrant_service.py
 |
@@ -174,11 +187,13 @@ knowledge-ai-platform
 * Swagger API documentation enabled
 
 Endpoint:
+
 ```
 GET /
 ```
 
 Response:
+
 ```
 {"status": "running"}
 ```
@@ -192,11 +207,13 @@ Response:
 * Database connectivity verified
 
 Endpoint:
+
 ```
 GET /db-test
 ```
 
 Response:
+
 ```
 {"database": "connected"}
 ```
@@ -213,6 +230,7 @@ Implemented:
 * API to insert document records
 
 Endpoint:
+
 ```
 POST /documents
 ```
@@ -224,6 +242,7 @@ POST /documents
 Implemented full CRUD operations for document metadata.
 
 Endpoints:
+
 ```
 POST   /documents
 GET    /documents
@@ -238,6 +257,7 @@ DELETE /documents/{document_id}
 Implemented real document upload functionality.
 
 Allowed file types:
+
 ```
 pdf
 docx
@@ -245,6 +265,7 @@ txt
 ```
 
 Storage location:
+
 ```
 storage/documents/
 ```
@@ -254,6 +275,7 @@ storage/documents/
 ## Day 6 — Document Text Extraction
 
 Supported formats:
+
 ```
 PDF
 DOCX
@@ -261,6 +283,7 @@ TXT
 ```
 
 Pipeline:
+
 ```
 Upload Document
       |
@@ -279,11 +302,13 @@ Store Extracted Text
 ## Day 7 — Text Chunking
 
 Added table:
+
 ```
 document_chunks
 ```
 
 Pipeline:
+
 ```
 Upload Document
       |
@@ -302,16 +327,19 @@ Store Chunks
 ## Day 8 — Embedding Generation
 
 Model:
+
 ```
 all-MiniLM-L6-v2
 ```
 
 Vector size:
+
 ```
 384
 ```
 
 Pipeline:
+
 ```
 Upload Document
       |
@@ -333,11 +361,13 @@ Store Embeddings
 ## Day 9 — Semantic Search Prototype
 
 Endpoint:
+
 ```
 POST /search
 ```
 
 Pipeline:
+
 ```
 Query -> Embedding -> Cosine Similarity -> Top Chunks
 ```
@@ -347,16 +377,19 @@ Query -> Embedding -> Cosine Similarity -> Top Chunks
 ## Day 10 — Retrieval Augmented Generation
 
 Model:
+
 ```
 google/flan-t5-base
 ```
 
 Endpoint:
+
 ```
 POST /ask
 ```
 
 Pipeline:
+
 ```
 Question
    |
@@ -381,11 +414,13 @@ Answer
 ## Day 11 — Vector Database Integration
 
 Vector database:
+
 ```
 Qdrant
 ```
 
 Pipeline:
+
 ```
 Question
    |
@@ -427,6 +462,7 @@ Key improvements:
 - Increased output quality with structured responses
 
 Updated pipeline:
+
 ```
 User Question
       ↓
@@ -442,8 +478,6 @@ Build Optimized Context
       ↓
 Generate Answer using LLM
 ```
-
-The system is now significantly faster, cleaner, and closer to production-grade AI systems.
 
 ---
 
@@ -462,12 +496,14 @@ Key implementations:
 - Fixed empty context check order in /ask (now checked before LLM call)
 
 New files:
+
 ```
 services/bm25_service.py
 services/hybrid_search.py
 ```
 
 Updated retrieval pipeline:
+
 ```
 User Query
       ↓
@@ -487,8 +523,6 @@ Generate Query Embedding
      Generate Answer using LLM
 ```
 
-The system now captures both semantic meaning and exact keyword matches, significantly improving retrieval quality for enterprise document search.
-
 ---
 
 ## Day 14 — Better LLM
@@ -505,20 +539,79 @@ Key changes:
 - Answer quality significantly improved over flan-t5-base
 
 Model:
+
 ```
 Phi-3-mini-4k-instruct-Q4_K_M.gguf
 ```
 
 Inference stack:
+
 ```
 llama-cpp-python → GGUF → CPU inference
 ```
 
 ---
 
+## Day 15 — Reranking
+
+Added cross-encoder reranking stage between hybrid search and LLM generation.
+
+Key implementations:
+
+- Created reranker_service.py using cross-encoder/ms-marco-MiniLM-L-6-v2
+- Cross-encoder scores each (query, chunk) pair jointly for fine-grained relevance
+- Hybrid search retrieves top-5 candidates, reranker selects top-3
+- rerank_score added to each chunk for visibility and debugging
+- Rewired /search and /ask to pass results through reranker before context building
+- Model auto-downloaded by sentence-transformers on first run (~80MB)
+
+New file:
+
+```
+services/reranker_service.py
+```
+
+Reranking model:
+
+```
+cross-encoder/ms-marco-MiniLM-L-6-v2
+```
+
+Updated retrieval pipeline:
+
+```
+User Query
+      ↓
+Generate Query Embedding
+      ↓
+┌──────────────────────────────┐
+│  Vector Search (semantic)    │
+│  BM25 Search (keyword)       │
+└─────────────┬────────────────┘
+              ↓
+  Reciprocal Rank Fusion (RRF)
+              ↓
+       Top-5 Fused Chunks
+              ↓
+   Cross-Encoder Reranking
+              ↓
+      Top-3 Reranked Chunks
+              ↓
+      Build Optimized Context
+              ↓
+     Generate Answer using LLM
+```
+
+The system now applies a two-stage retrieval strategy: fast approximate retrieval via hybrid search followed by precise relevance scoring via cross-encoder reranking.
+
+Known limitation: character-level chunking produces mid-sentence fragments that reduce reranker effectiveness. Will be addressed in a future chunking improvement day.
+
+---
+
 # Local Setup Instructions
 
 ## Install dependencies
+
 ```
 pip install -r requirements.txt
 ```
@@ -528,6 +621,7 @@ pip install -r requirements.txt
 ## Download LLM
 
 Create the models directory and download the LLM:
+
 ```
 mkdir -p models
 cd models
@@ -535,11 +629,12 @@ wget https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF/resolve/main/P
 cd ..
 ```
 
-Note: The embedding model (all-MiniLM-L6-v2) is downloaded automatically by sentence-transformers on first run. No manual step required.
+Note: The embedding model (all-MiniLM-L6-v2) and reranking model (ms-marco-MiniLM-L-6-v2) are downloaded automatically by sentence-transformers on first run. No manual step required.
 
 ---
 
 ## Start PostgreSQL
+
 ```
 docker run -d \
   --name knowledge-postgres \
@@ -553,6 +648,7 @@ docker run -d \
 ---
 
 ## Start Qdrant
+
 ```
 docker run -d \
   --name knowledge-qdrant \
@@ -563,6 +659,7 @@ docker run -d \
 ---
 
 ## Run backend
+
 ```
 uvicorn api.main:app --reload
 ```
@@ -570,6 +667,7 @@ uvicorn api.main:app --reload
 ---
 
 ## Open API docs
+
 ```
 http://localhost:8000/docs
 ```
@@ -618,7 +716,7 @@ http://localhost:8000/docs
 
 # Future Improvements
 
-* Reranking pipeline
+* Improved chunking strategy (sentence-aware, semantic chunking)
 * AI agent orchestration
 * Web dashboard
 * Observability (metrics & logs)
