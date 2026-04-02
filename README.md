@@ -18,6 +18,7 @@ The goal of this project is to build a **production-style AI infrastructure plat
 * Supporting Retrieval Augmented Generation (RAG)
 * Hybrid retrieval combining vector search and keyword search
 * Reranking retrieved chunks using a cross-encoder
+* Routing user queries via an intent-classification agent
 * Allowing AI agents to interact with company data
 * Running fully locally using containerized infrastructure
 
@@ -36,6 +37,7 @@ This project also serves as a **hands-on learning journey for building real-worl
 * BM25 keyword search
 * Hybrid search with Reciprocal Rank Fusion (RRF)
 * Cross-encoder reranking of retrieved chunks
+* Intent-classification agent for query routing
 * LLM-powered question answering
 * Fully local AI inference
 * Containerized infrastructure
@@ -71,9 +73,16 @@ FastAPI Backend
 User Query
   |
   v
-Generate Query Embedding
+Intent Classification (LLM)
   |
-  v
+  |-- out_of_scope → Fixed Response
+  |
+  \-- knowledge_base_query
+        |
+        v
+Generate Query Embedding
+        |
+        v
 ┌──────────────────────────────┐
 │  Vector Search (semantic)    │
 │  BM25 Search (keyword)       │
@@ -131,6 +140,11 @@ Generate Query Embedding
 * Reciprocal Rank Fusion
 * Cross-Encoder Reranking
 
+### Agent
+
+* Intent classification via Phi-3-mini
+* Tool-routing agent (knowledge_base_query / out_of_scope)
+
 ### Infrastructure
 
 * Docker
@@ -162,6 +176,7 @@ knowledge-ai-platform
 |   |-- hybrid_search.py
 |   |-- reranker_service.py
 |   |-- rag_service.py
+|   |-- agent_service.py
 |   \-- qdrant_service.py
 |
 |-- storage
@@ -461,24 +476,6 @@ Key improvements:
 - Improved prompt engineering for better answer quality
 - Increased output quality with structured responses
 
-Updated pipeline:
-
-```
-User Question
-      ↓
-Generate Query Embedding
-      ↓
-Qdrant Vector Search
-      ↓
-Filter + Rank Results
-      ↓
-Select Top Chunks
-      ↓
-Build Optimized Context
-      ↓
-Generate Answer using LLM
-```
-
 ---
 
 ## Day 13 — Hybrid Search (BM25 + Vector)
@@ -500,27 +497,6 @@ New files:
 ```
 services/bm25_service.py
 services/hybrid_search.py
-```
-
-Updated retrieval pipeline:
-
-```
-User Query
-      ↓
-Generate Query Embedding
-      ↓
-┌──────────────────────────────┐
-│  Vector Search (semantic)    │
-│  BM25 Search (keyword)       │
-└─────────────┬────────────────┘
-              ↓
-  Reciprocal Rank Fusion (RRF)
-              ↓
-       Top-K Fused Chunks
-              ↓
-      Build Optimized Context
-              ↓
-     Generate Answer using LLM
 ```
 
 ---
@@ -577,34 +553,49 @@ Reranking model:
 cross-encoder/ms-marco-MiniLM-L-6-v2
 ```
 
-Updated retrieval pipeline:
+---
+
+## Day 16 — AI Agent (Intent Classification + Tool Routing)
+
+Added a tool-routing agent layer that classifies user intent before running the retrieval pipeline.
+
+Key implementations:
+
+- Created agent_service.py with intent classifier and tool router
+- LLM classifies each query into knowledge_base_query or out_of_scope
+- knowledge_base_query routes through full hybrid search + rerank + LLM pipeline
+- out_of_scope returns a fixed response with zero retrieval overhead
+- Same Phi-3-mini instance reused for both classification and generation
+- Classification uses temperature=0.0 and max_tokens=10 for deterministic fast output
+- /ask endpoint now delegates entirely to run_agent()
+- intent field exposed in API response for transparency and debugging
+
+New file:
+
+```
+services/agent_service.py
+```
+
+Agent routing:
 
 ```
 User Query
       ↓
-Generate Query Embedding
+Intent Classification (Phi-3-mini, temp=0.0)
       ↓
-┌──────────────────────────────┐
-│  Vector Search (semantic)    │
-│  BM25 Search (keyword)       │
-└─────────────┬────────────────┘
-              ↓
-  Reciprocal Rank Fusion (RRF)
-              ↓
-       Top-5 Fused Chunks
-              ↓
-   Cross-Encoder Reranking
-              ↓
-      Top-3 Reranked Chunks
-              ↓
-      Build Optimized Context
-              ↓
-     Generate Answer using LLM
+┌─────────────────────────────────────┐
+│ knowledge_base_query                │
+│   → hybrid search + rerank + LLM   │
+├─────────────────────────────────────┤
+│ out_of_scope                        │
+│   → fixed response, no retrieval   │
+└─────────────────────────────────────┘
 ```
 
-The system now applies a two-stage retrieval strategy: fast approximate retrieval via hybrid search followed by precise relevance scoring via cross-encoder reranking.
+Verified:
 
-Known limitation: character-level chunking produces mid-sentence fragments that reduce reranker effectiveness. Will be addressed in a future chunking improvement day.
+- knowledge_base_query correctly retrieves and answers from uploaded documents
+- out_of_scope correctly intercepts general knowledge questions
 
 ---
 
@@ -717,7 +708,7 @@ http://localhost:8000/docs
 # Future Improvements
 
 * Improved chunking strategy (sentence-aware, semantic chunking)
-* AI agent orchestration
+* Multi-tool agent with full ReAct loop (requires stronger LLM)
 * Web dashboard
 * Observability (metrics & logs)
 * Kubernetes deployment

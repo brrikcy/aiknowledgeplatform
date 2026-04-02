@@ -7,6 +7,7 @@ from services.rag_service import generate_answer
 from services.qdrant_service import qdrant, COLLECTION_NAME
 from services.hybrid_search import hybrid_search
 from services.reranker_service import rerank
+from services.agent_service import run_agent
 from qdrant_client.http.models import PointStruct
 
 from sqlalchemy.orm import Session
@@ -151,21 +152,6 @@ def search_documents(request: QueryRequest, db: Session = Depends(get_db)):
 
 @router.post("/ask")
 def ask_question(request: QueryRequest, db: Session = Depends(get_db)):
+    result= run_agent(request.query)
+    return result
 
-    search_results = hybrid_search(request.query)
-    reranked_results = rerank(request.query, search_results)
-
-    if not reranked_results:
-        return {"question": request.query, "answer": "No relevant documents found."}
-
-    context_chunks=[r["chunk_text"] for r in search_results[:3]]
-
-    
-    
-    answer=generate_answer(request.query,context_chunks)
-
-    return { 
-    "question" : request.query,
-    "answer" : answer,
-    "context" : context_chunks
-    }
