@@ -20,7 +20,7 @@ The goal of this project is to build a **production-style AI infrastructure plat
 * Reranking retrieved chunks using a cross-encoder
 * Routing user queries via an intent-classification agent
 * Streaming LLM responses token by token
-* Allowing AI agents to interact with company data
+* Structured JSON logging with per-request tracing
 * Running fully locally using containerized infrastructure
 
 This project also serves as a **hands-on learning journey for building real-world AI systems**, covering backend development, vector databases, RAG pipelines, and AI orchestration.
@@ -41,6 +41,8 @@ This project also serves as a **hands-on learning journey for building real-worl
 * Intent-classification agent for query routing
 * LLM-powered question answering
 * Streaming responses via Server-Sent Events (SSE)
+* Structured JSON logging with request ID tracing
+* Per-stage pipeline timing (intent, search, rerank, LLM)
 * Fully local AI inference
 * Containerized infrastructure
 
@@ -75,41 +77,37 @@ FastAPI Backend
 User Query
   |
   v
+[LOG] request started (request_id)
+  |
+  v
 Intent Classification (LLM)
+  |
+[LOG] intent classified (duration_ms)
   |
   |-- out_of_scope → Fixed Response
   |
   \-- knowledge_base_query
         |
         v
-Generate Query Embedding
+Hybrid Search (Vector + BM25 + RRF)
+        |
+[LOG] hybrid search completed (results_count, duration_ms)
         |
         v
-┌──────────────────────────────┐
-│  Vector Search (semantic)    │
-│  BM25 Search (keyword)       │
-└─────────────┬────────────────┘
-              |
-              v
-  Reciprocal Rank Fusion (RRF)
-              |
-              v
-       Top-5 Fused Chunks
-              |
-              v
-   Cross-Encoder Reranking
-              |
-              v
-      Top-3 Reranked Chunks
-              |
-              v
-      Build Optimized Context
-              |
-              v
-     Generate Answer (LLM)
-              |
-              v
-     Stream tokens to client
+Cross-Encoder Reranking
+        |
+[LOG] reranking completed (results_count, duration_ms)
+        |
+        v
+Build Optimized Context
+        |
+        v
+Generate Answer (LLM)
+        |
+[LOG] request completed (all stage timings, total_ms)
+        |
+        v
+Response to Client
 ```
 
 ---
@@ -155,6 +153,13 @@ Generate Query Embedding
 * Server-Sent Events (SSE)
 * FastAPI StreamingResponse
 
+### Observability
+
+* Structured JSON logging
+* Per-request UUID tracing
+* Per-stage pipeline timing
+* Python built-in logging module
+
 ### Infrastructure
 
 * Docker
@@ -187,6 +192,7 @@ knowledge-ai-platform
 |   |-- reranker_service.py
 |   |-- rag_service.py
 |   |-- agent_service.py
+|   |-- logger_service.py
 |   \-- qdrant_service.py
 |
 |-- storage
@@ -310,16 +316,7 @@ TXT
 Pipeline:
 
 ```
-Upload Document
-      |
-      v
-Save File
-      |
-      v
-Extract Text
-      |
-      v
-Store Extracted Text
+Upload Document → Save File → Extract Text → Store Extracted Text
 ```
 
 ---
@@ -335,16 +332,7 @@ document_chunks
 Pipeline:
 
 ```
-Upload Document
-      |
-      v
-Extract Text
-      |
-      v
-Chunk Text
-      |
-      v
-Store Chunks
+Upload Document → Extract Text → Chunk Text → Store Chunks
 ```
 
 ---
@@ -366,19 +354,7 @@ Vector size:
 Pipeline:
 
 ```
-Upload Document
-      |
-      v
-Extract Text
-      |
-      v
-Chunk Text
-      |
-      v
-Generate Embeddings
-      |
-      v
-Store Embeddings
+Upload Document → Extract Text → Chunk Text → Generate Embeddings → Store Embeddings
 ```
 
 ---
@@ -413,12 +389,6 @@ Endpoint:
 POST /ask
 ```
 
-Pipeline:
-
-```
-Question → Embedding → Chunk Retrieval → Context → LLM → Answer
-```
-
 ---
 
 ## Day 11 — Vector Database Integration
@@ -446,8 +416,6 @@ Key improvements:
 - Stored chunk text directly inside Qdrant payload
 - Eliminated redundant database queries during search
 - Implemented score-based filtering of retrieved chunks
-- Added ranking and selection of top relevant chunks
-- Reduced context size for better LLM performance
 - Improved prompt engineering for better answer quality
 
 ---
@@ -461,9 +429,7 @@ Key implementations:
 - Added BM25 keyword search service using rank_bm25
 - BM25 retriever pulls chunk corpus from Qdrant (no PostgreSQL dependency)
 - Created hybrid search service with Reciprocal Rank Fusion (RRF, k=60)
-- Fuses results from both retrievers using rank-based scoring
 - Rewired /search and /ask endpoints to use hybrid retrieval
-- Removed unused database dependency from retrieval endpoints
 
 New files:
 
@@ -510,7 +476,6 @@ Key implementations:
 - Cross-encoder scores each (query, chunk) pair jointly for fine-grained relevance
 - Hybrid search retrieves top-5 candidates, reranker selects top-3
 - rerank_score added to each chunk for visibility and debugging
-- Rewired /search and /ask to pass results through reranker before context building
 
 New file:
 
@@ -538,8 +503,6 @@ Key implementations:
 - out_of_scope returns a fixed response with zero retrieval overhead
 - Same Phi-3-mini instance reused for both classification and generation
 - Classification uses temperature=0.0 and max_tokens=10 for deterministic fast output
-- /ask endpoint now delegates entirely to run_agent()
-- intent field exposed in API response for transparency and debugging
 
 New file:
 
@@ -571,12 +534,10 @@ Added token-by-token streaming of LLM responses via Server-Sent Events.
 
 Key implementations:
 
-- Added generate_answer_stream() to rag_service.py using stream=True in create_chat_completion
-- Added run_agent_stream() to agent_service.py that classifies intent then streams generation
+- Added generate_answer_stream() to rag_service.py using stream=True
+- Added run_agent_stream() to agent_service.py
 - Added POST /ask/stream endpoint using FastAPI StreamingResponse
 - Streaming is additive — existing POST /ask endpoint unchanged
-- Out-of-scope queries return instantly with no generation overhead
-- media_type set to text/event-stream for SSE standard compliance
 
 New endpoint:
 
@@ -584,20 +545,46 @@ New endpoint:
 POST /ask/stream
 ```
 
-Streaming flow:
+---
+
+## Day 18 — Observability (Structured Logging + Request Tracing)
+
+Added production-grade structured JSON logging with per-request tracing and per-stage timing.
+
+Key implementations:
+
+- Created logger_service.py with JSONFormatter and get_logger factory
+- Every request assigned a UUID request_id for cross-service log correlation
+- Per-stage timing logged for: intent classification, hybrid search, reranking, LLM generation
+- Total request duration logged on completion
+- WARNING level logged when no relevant documents found
+- Removed debug print statements from vector_search.py
+- No new dependencies — uses Python built-in logging module
+
+New file:
 
 ```
-Client → POST /ask/stream
-      ↓
-Intent Classification
-      ↓
-Hybrid Search + Rerank
-      ↓
-LLM generates token
-      ↓ (repeated)
-Token streamed to client immediately
-      ↓
-Stream ends at EOS
+services/logger_service.py
+```
+
+Sample log output:
+
+```json
+{"timestamp": "...", "level": "INFO", "logger": "agent_service", "message": "request started", "request_id": "...", "query": "..."}
+{"timestamp": "...", "level": "INFO", "logger": "agent_service", "message": "intent classified", "request_id": "...", "intent": "knowledge_base_query", "duration_ms": 18069}
+{"timestamp": "...", "level": "INFO", "logger": "agent_service", "message": "hybrid search completed", "request_id": "...", "results_count": 5, "duration_ms": 572}
+{"timestamp": "...", "level": "INFO", "logger": "agent_service", "message": "reranking completed", "request_id": "...", "results_count": 3, "duration_ms": 561}
+{"timestamp": "...", "level": "INFO", "logger": "agent_service", "message": "request completed", "request_id": "...", "intent_ms": 18069, "search_ms": 572, "rerank_ms": 561, "llm_ms": 77203, "total_ms": 96407}
+```
+
+Known bottleneck identified via logging:
+
+```
+Intent Classification:  18,069ms  ← long prompt prefill on CPU
+Hybrid Search:             572ms
+Reranking:                 561ms
+LLM Generation:         77,203ms  ← expected on CPU, mitigated by streaming
+Total:                  96,407ms
 ```
 
 ---
@@ -739,9 +726,9 @@ http://localhost:8000/docs
 # Future Improvements
 
 * Improved chunking strategy (sentence-aware, semantic chunking)
+* Shorten intent classification prompt to reduce prefill latency
 * Multi-tool agent with full ReAct loop (requires stronger LLM)
 * Web dashboard
-* Observability (metrics & logs)
 * Kubernetes deployment
 * Multi-tenant architecture
 
