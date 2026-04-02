@@ -1,6 +1,6 @@
 from services.hybrid_search import hybrid_search
 from services.reranker_service import rerank
-from services.rag_service import generate_answer,llm
+from services.rag_service import generate_answer,llm,generate_answer_stream
 
 INTENT_PROMPT = """Your job is to classify the user's question into exactly one of these categories:
 
@@ -63,3 +63,22 @@ def run_agent(query: str) -> dict:
         "answer": answer,
         "context": context_chunks
     }
+
+def run_agent_stream(query:str):
+    intent=classify_intent(query)
+
+    if intent == "out_of_scope":
+        yield "This question is outside the scope of internal knowledge base."
+        return
+
+    search_results=hybrid_search(query)
+    reranked_results=rerank(query, search_results)
+
+    if not reranked_results:
+        yield "No relevant documents found in the knowledge base."
+        return
+
+    context_chunks=[r["chunk_text"] for r in reranked_results]
+
+    for token in generate_answer_stream(query, context_chunks):
+        yield token

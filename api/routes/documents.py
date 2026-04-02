@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi.responses import StreamingResponse
 from services.document_processor import extract_text
 from services.text_chunker import chunk_text
 from services.embedding_service import embedding_service
@@ -7,7 +8,7 @@ from services.rag_service import generate_answer
 from services.qdrant_service import qdrant, COLLECTION_NAME
 from services.hybrid_search import hybrid_search
 from services.reranker_service import rerank
-from services.agent_service import run_agent
+from services.agent_service import run_agent, run_agent_stream
 from qdrant_client.http.models import PointStruct
 
 from sqlalchemy.orm import Session
@@ -155,3 +156,13 @@ def ask_question(request: QueryRequest, db: Session = Depends(get_db)):
     result= run_agent(request.query)
     return result
 
+@router.post("/ask/stream")
+def ask_question_stream(request: QueryRequest):
+    def token_generator():
+        for token in run_agent_stream(request.query):
+            yield token
+
+    return StreamingResponse(
+            token_generator(),
+            media_type="text/event-stream"
+        )

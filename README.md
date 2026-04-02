@@ -19,6 +19,7 @@ The goal of this project is to build a **production-style AI infrastructure plat
 * Hybrid retrieval combining vector search and keyword search
 * Reranking retrieved chunks using a cross-encoder
 * Routing user queries via an intent-classification agent
+* Streaming LLM responses token by token
 * Allowing AI agents to interact with company data
 * Running fully locally using containerized infrastructure
 
@@ -39,6 +40,7 @@ This project also serves as a **hands-on learning journey for building real-worl
 * Cross-encoder reranking of retrieved chunks
 * Intent-classification agent for query routing
 * LLM-powered question answering
+* Streaming responses via Server-Sent Events (SSE)
 * Fully local AI inference
 * Containerized infrastructure
 
@@ -105,6 +107,9 @@ Generate Query Embedding
               |
               v
      Generate Answer (LLM)
+              |
+              v
+     Stream tokens to client
 ```
 
 ---
@@ -144,6 +149,11 @@ Generate Query Embedding
 
 * Intent classification via Phi-3-mini
 * Tool-routing agent (knowledge_base_query / out_of_scope)
+
+### Streaming
+
+* Server-Sent Events (SSE)
+* FastAPI StreamingResponse
 
 ### Infrastructure
 
@@ -406,22 +416,7 @@ POST /ask
 Pipeline:
 
 ```
-Question
-   |
-   v
-Embedding
-   |
-   v
-Chunk Retrieval
-   |
-   v
-Context
-   |
-   v
-LLM
-   |
-   v
-Answer
+Question → Embedding → Chunk Retrieval → Context → LLM → Answer
 ```
 
 ---
@@ -437,32 +432,12 @@ Qdrant
 Pipeline:
 
 ```
-Question
-   |
-   v
-Embedding
-   |
-   v
-Qdrant Vector Search
-   |
-   v
-Retrieve Chunks
-   |
-   v
-Build Context
-   |
-   v
-LLM
-   |
-   v
-Answer
+Question → Embedding → Qdrant Vector Search → Retrieve Chunks → Build Context → LLM → Answer
 ```
 
 ---
 
 ## Day 12 — Retrieval Optimization and Context Engineering
-
-Improved the retrieval and generation pipeline to make the system more efficient and production-ready.
 
 Key improvements:
 
@@ -474,7 +449,6 @@ Key improvements:
 - Added ranking and selection of top relevant chunks
 - Reduced context size for better LLM performance
 - Improved prompt engineering for better answer quality
-- Increased output quality with structured responses
 
 ---
 
@@ -490,7 +464,6 @@ Key implementations:
 - Fuses results from both retrievers using rank-based scoring
 - Rewired /search and /ask endpoints to use hybrid retrieval
 - Removed unused database dependency from retrieval endpoints
-- Fixed empty context check order in /ask (now checked before LLM call)
 
 New files:
 
@@ -512,7 +485,6 @@ Key changes:
 - Model runs fully on CPU via GGUF quantization (~2.2GB, 4-bit)
 - Used create_chat_completion API for correct prompt formatting
 - Removed transformers and torch dependencies
-- Answer quality significantly improved over flan-t5-base
 
 Model:
 
@@ -539,7 +511,6 @@ Key implementations:
 - Hybrid search retrieves top-5 candidates, reranker selects top-3
 - rerank_score added to each chunk for visibility and debugging
 - Rewired /search and /ask to pass results through reranker before context building
-- Model auto-downloaded by sentence-transformers on first run (~80MB)
 
 New file:
 
@@ -592,10 +563,70 @@ Intent Classification (Phi-3-mini, temp=0.0)
 └─────────────────────────────────────┘
 ```
 
-Verified:
+---
 
-- knowledge_base_query correctly retrieves and answers from uploaded documents
-- out_of_scope correctly intercepts general knowledge questions
+## Day 17 — Streaming Responses
+
+Added token-by-token streaming of LLM responses via Server-Sent Events.
+
+Key implementations:
+
+- Added generate_answer_stream() to rag_service.py using stream=True in create_chat_completion
+- Added run_agent_stream() to agent_service.py that classifies intent then streams generation
+- Added POST /ask/stream endpoint using FastAPI StreamingResponse
+- Streaming is additive — existing POST /ask endpoint unchanged
+- Out-of-scope queries return instantly with no generation overhead
+- media_type set to text/event-stream for SSE standard compliance
+
+New endpoint:
+
+```
+POST /ask/stream
+```
+
+Streaming flow:
+
+```
+Client → POST /ask/stream
+      ↓
+Intent Classification
+      ↓
+Hybrid Search + Rerank
+      ↓
+LLM generates token
+      ↓ (repeated)
+Token streamed to client immediately
+      ↓
+Stream ends at EOS
+```
+
+---
+
+# API Reference
+
+## Document Management
+
+```
+POST   /documents              Upload a document
+GET    /documents              List all documents
+GET    /documents/{id}         Get document by ID
+DELETE /documents/{id}         Delete document by ID
+```
+
+## Search and QA
+
+```
+POST   /search                 Hybrid search with reranking
+POST   /ask                    Agent-routed question answering
+POST   /ask/stream             Streaming question answering (SSE)
+```
+
+## System
+
+```
+GET    /                       Health check
+GET    /db-test                Database connectivity check
+```
 
 ---
 
@@ -713,7 +744,6 @@ http://localhost:8000/docs
 * Observability (metrics & logs)
 * Kubernetes deployment
 * Multi-tenant architecture
-* Streaming responses
 
 ---
 
