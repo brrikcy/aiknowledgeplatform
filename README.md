@@ -43,6 +43,7 @@ This project also serves as a **hands-on learning journey for building real-worl
 * Streaming responses via Server-Sent Events (SSE)
 * Structured JSON logging with request ID tracing
 * Per-stage pipeline timing (intent, search, rerank, LLM)
+* Full Docker Compose stack (PostgreSQL + Qdrant + Backend)
 * Fully local AI inference
 * Containerized infrastructure
 
@@ -54,12 +55,12 @@ This project also serves as a **hands-on learning journey for building real-worl
 Users
   |
   v
-FastAPI Backend
+FastAPI Backend (Docker)
   |
   |-- Document Upload
   |        |
   |        v
-  |    Local Storage
+  |    Local Storage (mounted volume)
   |        |
   |        v
   |    Text Extraction
@@ -71,18 +72,13 @@ FastAPI Backend
   |   Embedding Generation
   |        |
   |        v
-  |    Vector Database (Qdrant)
+  |    Qdrant (Docker) ←→ PostgreSQL (Docker)
   |
   v
 User Query
   |
   v
-[LOG] request started (request_id)
-  |
-  v
 Intent Classification (LLM)
-  |
-[LOG] intent classified (duration_ms)
   |
   |-- out_of_scope → Fixed Response
   |
@@ -91,12 +87,8 @@ Intent Classification (LLM)
         v
 Hybrid Search (Vector + BM25 + RRF)
         |
-[LOG] hybrid search completed (results_count, duration_ms)
-        |
         v
 Cross-Encoder Reranking
-        |
-[LOG] reranking completed (results_count, duration_ms)
         |
         v
 Build Optimized Context
@@ -104,10 +96,8 @@ Build Optimized Context
         v
 Generate Answer (LLM)
         |
-[LOG] request completed (all stage timings, total_ms)
-        |
         v
-Response to Client
+Response / Stream to Client
 ```
 
 ---
@@ -201,8 +191,10 @@ knowledge-ai-platform
 |-- models
 |   \-- Phi-3-mini-4k-instruct-Q4_K_M.gguf
 |
-|-- scripts
-|
+|-- Dockerfile
+|-- docker-compose.yml
+|-- .env
+|-- .dockerignore
 |-- requirements.txt
 \-- README.md
 ```
@@ -223,12 +215,6 @@ Endpoint:
 GET /
 ```
 
-Response:
-
-```
-{"status": "running"}
-```
-
 ---
 
 ## Day 2 — Database Integration
@@ -243,12 +229,6 @@ Endpoint:
 GET /db-test
 ```
 
-Response:
-
-```
-{"database": "connected"}
-```
-
 ---
 
 ## Day 3 — Database Models
@@ -258,19 +238,10 @@ Implemented:
 * SQLAlchemy Base model
 * documents table
 * Database session dependency
-* API to insert document records
-
-Endpoint:
-
-```
-POST /documents
-```
 
 ---
 
 ## Day 4 — Document CRUD APIs
-
-Implemented full CRUD operations for document metadata.
 
 Endpoints:
 
@@ -285,151 +256,70 @@ DELETE /documents/{document_id}
 
 ## Day 5 — Document Upload System
 
-Implemented real document upload functionality.
-
 Allowed file types:
 
 ```
-pdf
-docx
-txt
-```
-
-Storage location:
-
-```
-storage/documents/
+pdf / docx / txt
 ```
 
 ---
 
 ## Day 6 — Document Text Extraction
 
-Supported formats:
-
-```
-PDF
-DOCX
-TXT
-```
-
 Pipeline:
 
 ```
-Upload Document → Save File → Extract Text → Store Extracted Text
+Upload → Save → Extract Text → Store
 ```
 
 ---
 
 ## Day 7 — Text Chunking
 
-Added table:
-
-```
-document_chunks
-```
-
-Pipeline:
-
-```
-Upload Document → Extract Text → Chunk Text → Store Chunks
-```
+Added `document_chunks` table. Character-level sliding window chunking (size=500, overlap=50).
 
 ---
 
 ## Day 8 — Embedding Generation
 
-Model:
-
-```
-all-MiniLM-L6-v2
-```
-
-Vector size:
-
-```
-384
-```
-
-Pipeline:
-
-```
-Upload Document → Extract Text → Chunk Text → Generate Embeddings → Store Embeddings
-```
+Model: `all-MiniLM-L6-v2` — Vector size: 384
 
 ---
 
 ## Day 9 — Semantic Search Prototype
 
-Endpoint:
-
 ```
 POST /search
-```
-
-Pipeline:
-
-```
-Query -> Embedding -> Cosine Similarity -> Top Chunks
+Query → Embedding → Cosine Similarity → Top Chunks
 ```
 
 ---
 
 ## Day 10 — Retrieval Augmented Generation
 
-Model:
-
-```
-google/flan-t5-base
-```
-
-Endpoint:
-
-```
-POST /ask
-```
+Initial RAG pipeline with `google/flan-t5-base`.
 
 ---
 
 ## Day 11 — Vector Database Integration
 
-Vector database:
-
-```
-Qdrant
-```
-
-Pipeline:
-
-```
-Question → Embedding → Qdrant Vector Search → Retrieve Chunks → Build Context → LLM → Answer
-```
+Switched to Qdrant for vector storage and retrieval. Chunk text stored in Qdrant payload — PostgreSQL removed from retrieval path.
 
 ---
 
 ## Day 12 — Retrieval Optimization and Context Engineering
 
-Key improvements:
-
-- Removed PostgreSQL dependency from retrieval pipeline
-- Switched to fully vector-based retrieval using Qdrant payloads
-- Stored chunk text directly inside Qdrant payload
-- Eliminated redundant database queries during search
-- Implemented score-based filtering of retrieved chunks
-- Improved prompt engineering for better answer quality
+- Removed PostgreSQL from retrieval pipeline entirely
+- Score-based filtering of retrieved chunks
+- Improved prompt engineering
 
 ---
 
 ## Day 13 — Hybrid Search (BM25 + Vector)
 
-Implemented hybrid retrieval combining semantic vector search with keyword-based BM25 search using Reciprocal Rank Fusion.
-
-Key implementations:
-
-- Added BM25 keyword search service using rank_bm25
-- BM25 retriever pulls chunk corpus from Qdrant (no PostgreSQL dependency)
-- Created hybrid search service with Reciprocal Rank Fusion (RRF, k=60)
-- Rewired /search and /ask endpoints to use hybrid retrieval
+- BM25 retriever over Qdrant corpus
+- Reciprocal Rank Fusion (RRF, k=60)
+- Rewired /search and /ask to hybrid retrieval
 
 New files:
 
@@ -442,15 +332,9 @@ services/hybrid_search.py
 
 ## Day 14 — Better LLM
 
-Replaced the weak flan-t5-base model with a production-capable local LLM.
-
-Key changes:
-
-- Replaced google/flan-t5-base with Phi-3-mini-4k-instruct-Q4_K_M
-- Switched from HuggingFace Transformers to llama-cpp-python for inference
-- Model runs fully on CPU via GGUF quantization (~2.2GB, 4-bit)
-- Used create_chat_completion API for correct prompt formatting
-- Removed transformers and torch dependencies
+- Replaced flan-t5-base with Phi-3-mini-4k-instruct-Q4_K_M
+- llama-cpp-python for CPU inference
+- create_chat_completion for correct prompt formatting
 
 Model:
 
@@ -458,24 +342,13 @@ Model:
 Phi-3-mini-4k-instruct-Q4_K_M.gguf
 ```
 
-Inference stack:
-
-```
-llama-cpp-python → GGUF → CPU inference
-```
-
 ---
 
 ## Day 15 — Reranking
 
-Added cross-encoder reranking stage between hybrid search and LLM generation.
-
-Key implementations:
-
-- Created reranker_service.py using cross-encoder/ms-marco-MiniLM-L-6-v2
-- Cross-encoder scores each (query, chunk) pair jointly for fine-grained relevance
-- Hybrid search retrieves top-5 candidates, reranker selects top-3
-- rerank_score added to each chunk for visibility and debugging
+- Cross-encoder reranking after hybrid search
+- Hybrid search retrieves top-5, reranker selects top-3
+- rerank_score exposed in API response
 
 New file:
 
@@ -483,26 +356,15 @@ New file:
 services/reranker_service.py
 ```
 
-Reranking model:
-
-```
-cross-encoder/ms-marco-MiniLM-L-6-v2
-```
+Model: `cross-encoder/ms-marco-MiniLM-L-6-v2`
 
 ---
 
 ## Day 16 — AI Agent (Intent Classification + Tool Routing)
 
-Added a tool-routing agent layer that classifies user intent before running the retrieval pipeline.
-
-Key implementations:
-
-- Created agent_service.py with intent classifier and tool router
-- LLM classifies each query into knowledge_base_query or out_of_scope
-- knowledge_base_query routes through full hybrid search + rerank + LLM pipeline
-- out_of_scope returns a fixed response with zero retrieval overhead
-- Same Phi-3-mini instance reused for both classification and generation
-- Classification uses temperature=0.0 and max_tokens=10 for deterministic fast output
+- Intent classifier routes queries to knowledge_base_query or out_of_scope
+- Same Phi-3-mini instance reused for classification and generation
+- /ask delegates entirely to run_agent()
 
 New file:
 
@@ -510,34 +372,13 @@ New file:
 services/agent_service.py
 ```
 
-Agent routing:
-
-```
-User Query
-      ↓
-Intent Classification (Phi-3-mini, temp=0.0)
-      ↓
-┌─────────────────────────────────────┐
-│ knowledge_base_query                │
-│   → hybrid search + rerank + LLM   │
-├─────────────────────────────────────┤
-│ out_of_scope                        │
-│   → fixed response, no retrieval   │
-└─────────────────────────────────────┘
-```
-
 ---
 
 ## Day 17 — Streaming Responses
 
-Added token-by-token streaming of LLM responses via Server-Sent Events.
-
-Key implementations:
-
-- Added generate_answer_stream() to rag_service.py using stream=True
-- Added run_agent_stream() to agent_service.py
-- Added POST /ask/stream endpoint using FastAPI StreamingResponse
-- Streaming is additive — existing POST /ask endpoint unchanged
+- generate_answer_stream() added to rag_service.py
+- run_agent_stream() added to agent_service.py
+- POST /ask/stream endpoint via FastAPI StreamingResponse
 
 New endpoint:
 
@@ -549,17 +390,10 @@ POST /ask/stream
 
 ## Day 18 — Observability (Structured Logging + Request Tracing)
 
-Added production-grade structured JSON logging with per-request tracing and per-stage timing.
-
-Key implementations:
-
-- Created logger_service.py with JSONFormatter and get_logger factory
-- Every request assigned a UUID request_id for cross-service log correlation
-- Per-stage timing logged for: intent classification, hybrid search, reranking, LLM generation
-- Total request duration logged on completion
-- WARNING level logged when no relevant documents found
-- Removed debug print statements from vector_search.py
-- No new dependencies — uses Python built-in logging module
+- JSONFormatter logger with get_logger factory
+- UUID request_id per request for cross-service correlation
+- Per-stage timing: intent, search, rerank, LLM, total
+- Debug prints removed from vector_search.py
 
 New file:
 
@@ -567,25 +401,42 @@ New file:
 services/logger_service.py
 ```
 
-Sample log output:
+---
 
-```json
-{"timestamp": "...", "level": "INFO", "logger": "agent_service", "message": "request started", "request_id": "...", "query": "..."}
-{"timestamp": "...", "level": "INFO", "logger": "agent_service", "message": "intent classified", "request_id": "...", "intent": "knowledge_base_query", "duration_ms": 18069}
-{"timestamp": "...", "level": "INFO", "logger": "agent_service", "message": "hybrid search completed", "request_id": "...", "results_count": 5, "duration_ms": 572}
-{"timestamp": "...", "level": "INFO", "logger": "agent_service", "message": "reranking completed", "request_id": "...", "results_count": 3, "duration_ms": 561}
-{"timestamp": "...", "level": "INFO", "logger": "agent_service", "message": "request completed", "request_id": "...", "intent_ms": 18069, "search_ms": 572, "rerank_ms": 561, "llm_ms": 77203, "total_ms": 96407}
+## Day 19 — Docker Compose (Full Stack Containerization)
+
+Containerized the entire platform — PostgreSQL, Qdrant, and FastAPI backend run together via a single `docker compose up` command.
+
+Key implementations:
+
+- Created Dockerfile for FastAPI backend (python:3.12-slim + gcc/g++/cmake for llama-cpp-python compilation)
+- Created docker-compose.yml with all three services, healthchecks, named volumes, and dependency ordering
+- Created .env for environment variable management (DATABASE_URL, QDRANT_HOST, PostgreSQL credentials)
+- Created .dockerignore to exclude models/, storage/, venv/ from build context
+- Updated database/db.py to read DATABASE_URL from environment with localhost fallback
+- Updated qdrant_service.py to read QDRANT_HOST from environment with localhost fallback
+- PostgreSQL healthcheck via pg_isready before backend starts
+- Qdrant healthcheck via TCP port check before backend starts
+- models/ and storage/ mounted as volumes — GGUF file not baked into image
+- Data persists across restarts via named volumes (postgres_data, qdrant_data)
+- Verified end-to-end: document retrieval and LLM answer generation working inside containers
+
+New files:
+
+```
+Dockerfile
+docker-compose.yml
+.env
+.dockerignore
 ```
 
-Known bottleneck identified via logging:
+Stack startup:
 
 ```
-Intent Classification:  18,069ms  ← long prompt prefill on CPU
-Hybrid Search:             572ms
-Reranking:                 561ms
-LLM Generation:         77,203ms  ← expected on CPU, mitigated by streaming
-Total:                  96,407ms
+docker compose up
 ```
+
+All services healthy and responding on first boot.
 
 ---
 
@@ -619,17 +470,15 @@ GET    /db-test                Database connectivity check
 
 # Local Setup Instructions
 
-## Install dependencies
+## Prerequisites
 
-```
-pip install -r requirements.txt
-```
+* Docker and Docker Compose installed
+* At least 8GB RAM
+* At least 10GB free disk space
 
 ---
 
 ## Download LLM
-
-Create the models directory and download the LLM:
 
 ```
 mkdir -p models
@@ -638,39 +487,34 @@ wget https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF/resolve/main/P
 cd ..
 ```
 
-Note: The embedding model (all-MiniLM-L6-v2) and reranking model (ms-marco-MiniLM-L-6-v2) are downloaded automatically by sentence-transformers on first run. No manual step required.
+Note: The embedding model (all-MiniLM-L6-v2) and reranking model (ms-marco-MiniLM-L-6-v2) are downloaded automatically on first run.
 
 ---
 
-## Start PostgreSQL
+## Configure environment
+
+Create a `.env` file in the project root:
 
 ```
-docker run -d \
-  --name knowledge-postgres \
-  -e POSTGRES_USER=admin \
-  -e POSTGRES_PASSWORD=admin123 \
-  -e POSTGRES_DB=knowledge_ai \
-  -p 5432:5432 \
-  postgres:15
-```
-
----
-
-## Start Qdrant
-
-```
-docker run -d \
-  --name knowledge-qdrant \
-  -p 6333:6333 \
-  qdrant/qdrant
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=admin123
+POSTGRES_DB=knowledge_ai
+DATABASE_URL=postgresql://admin:admin123@postgres:5432/knowledge_ai
+QDRANT_HOST=qdrant
 ```
 
 ---
 
-## Run backend
+## Start the full stack
 
 ```
-uvicorn api.main:app --reload
+docker compose up --build
+```
+
+For subsequent starts (no code changes):
+
+```
+docker compose up
 ```
 
 ---
@@ -717,7 +561,7 @@ http://localhost:8000/docs
 
 ### Week 6 — Production Setup
 
-* Docker deployment
+* Docker deployment ✅
 * Redis caching
 * System optimization
 
@@ -726,9 +570,10 @@ http://localhost:8000/docs
 # Future Improvements
 
 * Improved chunking strategy (sentence-aware, semantic chunking)
-* Shorten intent classification prompt to reduce prefill latency
 * Multi-tool agent with full ReAct loop (requires stronger LLM)
 * Web dashboard
+* Observability dashboard (Grafana + Loki)
+* Redis caching for BM25 index
 * Kubernetes deployment
 * Multi-tenant architecture
 
