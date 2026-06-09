@@ -9,6 +9,7 @@ from services.qdrant_service import qdrant, COLLECTION_NAME
 from services.hybrid_search import hybrid_search
 from services.reranker_service import rerank
 from services.agent_service import run_agent, run_agent_stream
+from services.bm25_service import invalidate_bm25_cache
 from qdrant_client.http.models import PointStruct
 
 from sqlalchemy.orm import Session
@@ -88,6 +89,7 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
 
 
     db.commit()
+    invalidate_bm25_cache()
     return {
         "id": str(document.id),
         "file_name": document.file_name,

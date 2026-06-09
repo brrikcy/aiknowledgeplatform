@@ -1,6 +1,6 @@
 from llama_cpp import Llama
-
-MODEL_PATH = "llm_models/Phi-3-mini-4k-instruct-Q4_K_M.gguf"
+import os
+MODEL_PATH = os.getenv("MODEL_PATH", "models/Phi-3-mini-4k-instruct-Q4_K_M.gguf")
 
 llm = Llama(
     model_path=MODEL_PATH,

@@ -7,3 +7,4 @@ __pycache__/
 storage/documents/*
 !storage/documents/.gitkeep
 llm_models/
+models/

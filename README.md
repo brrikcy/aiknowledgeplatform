@@ -21,6 +21,7 @@ The goal of this project is to build a **production-style AI infrastructure plat
 * Routing user queries via an intent-classification agent
 * Streaming LLM responses token by token
 * Structured JSON logging with per-request tracing
+* Redis caching for BM25 index and query embeddings
 * Running fully locally using containerized infrastructure
 
 This project also serves as a **hands-on learning journey for building real-world AI systems**, covering backend development, vector databases, RAG pipelines, and AI orchestration.
@@ -43,7 +44,8 @@ This project also serves as a **hands-on learning journey for building real-worl
 * Streaming responses via Server-Sent Events (SSE)
 * Structured JSON logging with request ID tracing
 * Per-stage pipeline timing (intent, search, rerank, LLM)
-* Full Docker Compose stack (PostgreSQL + Qdrant + Backend)
+* Redis caching for BM25 index (invalidated on upload) and embeddings (TTL 1hr)
+* Full Docker Compose stack (PostgreSQL + Qdrant + Redis + Backend)
 * Fully local AI inference
 * Containerized infrastructure
 
@@ -70,9 +72,13 @@ FastAPI Backend (Docker)
   |        |
   |        v
   |   Embedding Generation
+  |     (check Redis cache first)
   |        |
   |        v
   |    Qdrant (Docker) ←→ PostgreSQL (Docker)
+  |        |
+  |        v
+  |    Invalidate BM25 cache (Redis)
   |
   v
 User Query
@@ -85,19 +91,28 @@ Intent Classification (LLM)
   \-- knowledge_base_query
         |
         v
-Hybrid Search (Vector + BM25 + RRF)
+Query Embedding (Redis cache → generate if miss)
         |
         v
-Cross-Encoder Reranking
-        |
-        v
-Build Optimized Context
-        |
-        v
-Generate Answer (LLM)
-        |
-        v
-Response / Stream to Client
+┌──────────────────────────────────────┐
+│  Vector Search (Qdrant ANN)          │
+│  BM25 Search (Redis cache → rebuild) │
+└─────────────┬────────────────────────┘
+              |
+              v
+  Reciprocal Rank Fusion (RRF)
+              |
+              v
+   Cross-Encoder Reranking
+              |
+              v
+      Build Optimized Context
+              |
+              v
+     Generate Answer (LLM)
+              |
+              v
+     Response / Stream to Client
 ```
 
 ---
@@ -118,6 +133,12 @@ Response / Stream to Client
 ### Vector Database
 
 * Qdrant
+
+### Cache
+
+* Redis 7
+* BM25 index cached as serialized pickle
+* Query embeddings cached as JSON with 1hr TTL
 
 ### AI / NLP
 
@@ -183,17 +204,18 @@ knowledge-ai-platform
 |   |-- rag_service.py
 |   |-- agent_service.py
 |   |-- logger_service.py
+|   |-- cache_service.py
 |   \-- qdrant_service.py
 |
 |-- storage
 |   \-- documents
 |
 |-- models
-|   \-- Phi-3-mini-4k-instruct-Q4_K_M.gguf
+|   \-- Phi-3-mini-4k-instruct-Q4_K_M.gguf  (not tracked in git)
 |
 |-- Dockerfile
 |-- docker-compose.yml
-|-- .env
+|-- .env                                      (not tracked in git)
 |-- .dockerignore
 |-- requirements.txt
 \-- README.md
@@ -209,41 +231,23 @@ knowledge-ai-platform
 * FastAPI backend initialized
 * Swagger API documentation enabled
 
-Endpoint:
-
-```
-GET /
-```
-
 ---
 
 ## Day 2 — Database Integration
 
 * PostgreSQL running via Docker
 * SQLAlchemy database connection implemented
-* Database connectivity verified
-
-Endpoint:
-
-```
-GET /db-test
-```
 
 ---
 
 ## Day 3 — Database Models
 
-Implemented:
-
+* documents and document_chunks tables
 * SQLAlchemy Base model
-* documents table
-* Database session dependency
 
 ---
 
 ## Day 4 — Document CRUD APIs
-
-Endpoints:
 
 ```
 POST   /documents
@@ -256,27 +260,19 @@ DELETE /documents/{document_id}
 
 ## Day 5 — Document Upload System
 
-Allowed file types:
-
-```
-pdf / docx / txt
-```
+Allowed file types: `pdf / docx / txt`
 
 ---
 
 ## Day 6 — Document Text Extraction
 
-Pipeline:
-
-```
-Upload → Save → Extract Text → Store
-```
+Pipeline: `Upload → Save → Extract Text → Store`
 
 ---
 
 ## Day 7 — Text Chunking
 
-Added `document_chunks` table. Character-level sliding window chunking (size=500, overlap=50).
+Character-level sliding window chunking (size=500, overlap=50).
 
 ---
 
@@ -303,15 +299,14 @@ Initial RAG pipeline with `google/flan-t5-base`.
 
 ## Day 11 — Vector Database Integration
 
-Switched to Qdrant for vector storage and retrieval. Chunk text stored in Qdrant payload — PostgreSQL removed from retrieval path.
+Qdrant for vector storage. Chunk text stored in payload. PostgreSQL removed from retrieval path.
 
 ---
 
 ## Day 12 — Retrieval Optimization and Context Engineering
 
 - Removed PostgreSQL from retrieval pipeline entirely
-- Score-based filtering of retrieved chunks
-- Improved prompt engineering
+- Score-based filtering, improved prompt engineering
 
 ---
 
@@ -319,14 +314,8 @@ Switched to Qdrant for vector storage and retrieval. Chunk text stored in Qdrant
 
 - BM25 retriever over Qdrant corpus
 - Reciprocal Rank Fusion (RRF, k=60)
-- Rewired /search and /ask to hybrid retrieval
 
-New files:
-
-```
-services/bm25_service.py
-services/hybrid_search.py
-```
+New files: `services/bm25_service.py`, `services/hybrid_search.py`
 
 ---
 
@@ -334,109 +323,93 @@ services/hybrid_search.py
 
 - Replaced flan-t5-base with Phi-3-mini-4k-instruct-Q4_K_M
 - llama-cpp-python for CPU inference
-- create_chat_completion for correct prompt formatting
 
-Model:
-
-```
-Phi-3-mini-4k-instruct-Q4_K_M.gguf
-```
+Model: `Phi-3-mini-4k-instruct-Q4_K_M.gguf`
 
 ---
 
 ## Day 15 — Reranking
 
 - Cross-encoder reranking after hybrid search
-- Hybrid search retrieves top-5, reranker selects top-3
-- rerank_score exposed in API response
+- Hybrid retrieves top-5, reranker selects top-3
 
-New file:
-
-```
-services/reranker_service.py
-```
-
+New file: `services/reranker_service.py`
 Model: `cross-encoder/ms-marco-MiniLM-L-6-v2`
 
 ---
 
 ## Day 16 — AI Agent (Intent Classification + Tool Routing)
 
-- Intent classifier routes queries to knowledge_base_query or out_of_scope
-- Same Phi-3-mini instance reused for classification and generation
+- Intent classifier routes to knowledge_base_query or out_of_scope
 - /ask delegates entirely to run_agent()
 
-New file:
-
-```
-services/agent_service.py
-```
+New file: `services/agent_service.py`
 
 ---
 
 ## Day 17 — Streaming Responses
 
-- generate_answer_stream() added to rag_service.py
-- run_agent_stream() added to agent_service.py
+- generate_answer_stream() and run_agent_stream() added
 - POST /ask/stream endpoint via FastAPI StreamingResponse
-
-New endpoint:
-
-```
-POST /ask/stream
-```
 
 ---
 
 ## Day 18 — Observability (Structured Logging + Request Tracing)
 
-- JSONFormatter logger with get_logger factory
-- UUID request_id per request for cross-service correlation
-- Per-stage timing: intent, search, rerank, LLM, total
-- Debug prints removed from vector_search.py
+- JSONFormatter logger, UUID request_id per request
+- Per-stage timing across full pipeline
 
-New file:
-
-```
-services/logger_service.py
-```
+New file: `services/logger_service.py`
 
 ---
 
 ## Day 19 — Docker Compose (Full Stack Containerization)
 
-Containerized the entire platform — PostgreSQL, Qdrant, and FastAPI backend run together via a single `docker compose up` command.
+- Dockerfile for FastAPI backend
+- docker-compose.yml with PostgreSQL + Qdrant + Backend
+- Healthchecks, named volumes, dependency ordering
+- Environment variables via .env
+
+New files: `Dockerfile`, `docker-compose.yml`, `.env`, `.dockerignore`
+
+---
+
+## Day 20 — Redis Caching + Configuration Hardening
+
+Added Redis caching for BM25 index and query embeddings. Also moved model path to environment variable.
 
 Key implementations:
 
-- Created Dockerfile for FastAPI backend (python:3.12-slim + gcc/g++/cmake for llama-cpp-python compilation)
-- Created docker-compose.yml with all three services, healthchecks, named volumes, and dependency ordering
-- Created .env for environment variable management (DATABASE_URL, QDRANT_HOST, PostgreSQL credentials)
-- Created .dockerignore to exclude models/, storage/, venv/ from build context
-- Updated database/db.py to read DATABASE_URL from environment with localhost fallback
-- Updated qdrant_service.py to read QDRANT_HOST from environment with localhost fallback
-- PostgreSQL healthcheck via pg_isready before backend starts
-- Qdrant healthcheck via TCP port check before backend starts
-- models/ and storage/ mounted as volumes — GGUF file not baked into image
-- Data persists across restarts via named volumes (postgres_data, qdrant_data)
-- Verified end-to-end: document retrieval and LLM answer generation working inside containers
+- Added Redis 7 service to docker-compose.yml with healthcheck and persistent volume
+- Created cache_service.py with Redis client and get/set/delete helpers
+- BM25 index serialized with pickle and cached in Redis after first build
+- BM25 cache invalidated automatically on every document upload
+- Query embeddings cached by MD5 hash of query string with 1hr TTL
+- Silent cache failure — if Redis is down, system falls back to fresh computation
+- Moved MODEL_PATH to environment variable — no longer hardcoded in rag_service.py
+- models/ added to .gitignore — GGUF file never tracked in git
+- Verified: search_ms dropped from 858ms to 217ms on cache hit (4x improvement)
 
-New files:
+New file:
 
 ```
-Dockerfile
-docker-compose.yml
-.env
-.dockerignore
+services/cache_service.py
 ```
 
-Stack startup:
+Cache behavior:
 
 ```
-docker compose up
-```
+First request:
+  embedding cache miss → generate → cache (TTL 1hr)
+  BM25 cache miss → rebuild index → cache (no TTL)
 
-All services healthy and responding on first boot.
+Second request (same query):
+  embedding cache hit → instant
+  BM25 cache hit → instant
+
+On document upload:
+  BM25 cache invalidated → rebuilt on next query
+```
 
 ---
 
@@ -501,6 +474,8 @@ POSTGRES_PASSWORD=admin123
 POSTGRES_DB=knowledge_ai
 DATABASE_URL=postgresql://admin:admin123@postgres:5432/knowledge_ai
 QDRANT_HOST=qdrant
+REDIS_URL=redis://redis:6379
+MODEL_PATH=models/Phi-3-mini-4k-instruct-Q4_K_M.gguf
 ```
 
 ---
@@ -562,7 +537,7 @@ http://localhost:8000/docs
 ### Week 6 — Production Setup
 
 * Docker deployment ✅
-* Redis caching
+* Redis caching ✅
 * System optimization
 
 ---
@@ -573,7 +548,6 @@ http://localhost:8000/docs
 * Multi-tool agent with full ReAct loop (requires stronger LLM)
 * Web dashboard
 * Observability dashboard (Grafana + Loki)
-* Redis caching for BM25 index
 * Kubernetes deployment
 * Multi-tenant architecture
 
