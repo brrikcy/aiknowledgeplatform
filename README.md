@@ -22,6 +22,7 @@ The goal of this project is to build a **production-style AI infrastructure plat
 * Streaming LLM responses token by token
 * Structured JSON logging with per-request tracing
 * Redis caching for BM25 index and query embeddings
+* Python SDK for programmatic access
 * Running fully locally using containerized infrastructure
 
 This project also serves as a **hands-on learning journey for building real-world AI systems**, covering backend development, vector databases, RAG pipelines, and AI orchestration.
@@ -44,7 +45,8 @@ This project also serves as a **hands-on learning journey for building real-worl
 * Streaming responses via Server-Sent Events (SSE)
 * Structured JSON logging with request ID tracing
 * Per-stage pipeline timing (intent, search, rerank, LLM)
-* Redis caching for BM25 index (invalidated on upload) and embeddings (TTL 1hr)
+* Redis caching for BM25 index and embeddings
+* Python SDK for programmatic integration
 * Full Docker Compose stack (PostgreSQL + Qdrant + Redis + Backend)
 * Fully local AI inference
 * Containerized infrastructure
@@ -54,7 +56,7 @@ This project also serves as a **hands-on learning journey for building real-worl
 # System Architecture
 
 ```
-Users
+Users / Python SDK
   |
   v
 FastAPI Backend (Docker)
@@ -171,6 +173,12 @@ Query Embedding (Redis cache → generate if miss)
 * Per-stage pipeline timing
 * Python built-in logging module
 
+### SDK
+
+* Python client (requests + httpx)
+* Wraps all API endpoints
+* Streaming support via httpx
+
 ### Infrastructure
 
 * Docker
@@ -206,6 +214,12 @@ knowledge-ai-platform
 |   |-- logger_service.py
 |   |-- cache_service.py
 |   \-- qdrant_service.py
+|
+|-- sdk
+|   |-- __init__.py
+|   |-- client.py
+|   |-- exceptions.py
+|   \-- example.py
 |
 |-- storage
 |   \-- documents
@@ -376,39 +390,67 @@ New files: `Dockerfile`, `docker-compose.yml`, `.env`, `.dockerignore`
 
 ## Day 20 — Redis Caching + Configuration Hardening
 
-Added Redis caching for BM25 index and query embeddings. Also moved model path to environment variable.
+- Redis 7 added to Docker Compose stack
+- BM25 index cached in Redis, invalidated on document upload
+- Query embeddings cached with 1hr TTL
+- MODEL_PATH moved to environment variable
+- search_ms: 858ms → 217ms on cache hit (4x improvement)
+
+New file: `services/cache_service.py`
+
+---
+
+## Day 21 — Python SDK
+
+Added a Python SDK for programmatic access to the platform.
 
 Key implementations:
 
-- Added Redis 7 service to docker-compose.yml with healthcheck and persistent volume
-- Created cache_service.py with Redis client and get/set/delete helpers
-- BM25 index serialized with pickle and cached in Redis after first build
-- BM25 cache invalidated automatically on every document upload
-- Query embeddings cached by MD5 hash of query string with 1hr TTL
-- Silent cache failure — if Redis is down, system falls back to fresh computation
-- Moved MODEL_PATH to environment variable — no longer hardcoded in rag_service.py
-- models/ added to .gitignore — GGUF file never tracked in git
-- Verified: search_ms dropped from 858ms to 217ms on cache hit (4x improvement)
+- KnowledgeClient class wrapping all API endpoints
+- Custom exceptions: KnowledgeAPIError, ConnectionError, DocumentNotFoundError
+- requests.Session for connection reuse across calls
+- httpx streaming support for ask_stream()
+- timeout=120 for streaming endpoint (CPU inference can be slow)
+- Example script demonstrating all SDK methods
 
-New file:
+New files:
 
 ```
-services/cache_service.py
+sdk/__init__.py
+sdk/client.py
+sdk/exceptions.py
+sdk/example.py
 ```
 
-Cache behavior:
+SDK usage:
+
+```python
+from sdk import KnowledgeClient
+
+client = KnowledgeClient("http://localhost:8000")
+
+# Upload a document
+client.upload("path/to/document.pdf")
+
+# Ask a question
+response = client.ask("who is ajmal?")
+print(response["answer"])
+
+# Stream an answer
+for token in client.ask_stream("what are the technical skills?"):
+    print(token, end="", flush=True)
+
+# Search
+results = client.search("machine learning")
+
+# List documents
+docs = client.list_documents()
+```
+
+Run example from project root:
 
 ```
-First request:
-  embedding cache miss → generate → cache (TTL 1hr)
-  BM25 cache miss → rebuild index → cache (no TTL)
-
-Second request (same query):
-  embedding cache hit → instant
-  BM25 cache hit → instant
-
-On document upload:
-  BM25 cache invalidated → rebuilt on next query
+python -m sdk.example
 ```
 
 ---
@@ -502,6 +544,14 @@ http://localhost:8000/docs
 
 ---
 
+## Use the Python SDK
+
+```
+python -m sdk.example
+```
+
+---
+
 # Development Roadmap
 
 ### Week 1 — Backend Foundation
@@ -531,8 +581,8 @@ http://localhost:8000/docs
 
 ### Week 5 — Developer SDK
 
-* Python client
-* Integration examples
+* Python client ✅
+* Integration examples ✅
 
 ### Week 6 — Production Setup
 
@@ -550,6 +600,7 @@ http://localhost:8000/docs
 * Observability dashboard (Grafana + Loki)
 * Kubernetes deployment
 * Multi-tenant architecture
+* SDK pip-installable package (setup.py / pyproject.toml)
 
 ---
 
