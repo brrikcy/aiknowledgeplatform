@@ -10,7 +10,7 @@ from services.hybrid_search import hybrid_search
 from services.reranker_service import rerank
 from services.agent_service import run_agent, run_agent_stream
 from services.bm25_service import invalidate_bm25_cache
-from qdrant_client.http.models import PointStruct
+from qdrant_client.http.models import PointStruct,PointIdsList
 
 from sqlalchemy.orm import Session
 import shutil
@@ -138,8 +138,29 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
     if document is None:
         return {"error": "Document not found"}
 
+    chunks = db.query(DocumentChunk).filter(
+            DocumentChunk.document_id == document.id
+            ).all()
+
+    if chunks:
+        chunk_ids = [str(chunk.id) for chunk in chunks]
+        qdrant.delete(
+                collection_name=COLLECTION_NAME,
+                points_selector=PointIdsList(points=chunk_ids)
+                )
+
+    if os.path.exists(document.storage_path):
+        os.remove(document.storage_path)
+
+    db.query(DocumentChunk).filter(
+            DocumentChunk.document_id == document.id
+            ).delete()
+
+
+
     db.delete(document)
     db.commit()
+    invalidate_bm25_cache()
 
     return {"message": "Document deleted successfully"}
 

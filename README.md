@@ -23,9 +23,8 @@ The goal of this project is to build a **production-style AI infrastructure plat
 * Structured JSON logging with per-request tracing
 * Redis caching for BM25 index and query embeddings
 * Python SDK for programmatic access
+* Full document lifecycle management (upload, search, delete)
 * Running fully locally using containerized infrastructure
-
-This project also serves as a **hands-on learning journey for building real-world AI systems**, covering backend development, vector databases, RAG pipelines, and AI orchestration.
 
 ---
 
@@ -47,6 +46,7 @@ This project also serves as a **hands-on learning journey for building real-worl
 * Per-stage pipeline timing (intent, search, rerank, LLM)
 * Redis caching for BM25 index and embeddings
 * Python SDK for programmatic integration
+* Full document deletion — cleans Qdrant, PostgreSQL, disk, and cache
 * Full Docker Compose stack (PostgreSQL + Qdrant + Redis + Backend)
 * Fully local AI inference
 * Containerized infrastructure
@@ -67,19 +67,20 @@ FastAPI Backend (Docker)
   |    Local Storage (mounted volume)
   |        |
   |        v
-  |    Text Extraction
+  |    Text Extraction → Chunking → Embeddings
   |        |
   |        v
-  |      Chunking
+  |    PostgreSQL (metadata) + Qdrant (vectors)
   |        |
   |        v
-  |   Embedding Generation
-  |     (check Redis cache first)
+  |    Invalidate BM25 cache (Redis)
+  |
+  |-- Document Delete
   |        |
   |        v
-  |    Qdrant (Docker) ←→ PostgreSQL (Docker)
-  |        |
-  |        v
+  |    Delete from Qdrant (vectors)
+  |    Delete from PostgreSQL (metadata + chunks)
+  |    Delete from disk (file)
   |    Invalidate BM25 cache (Redis)
   |
   v
@@ -171,7 +172,6 @@ Query Embedding (Redis cache → generate if miss)
 * Structured JSON logging
 * Per-request UUID tracing
 * Per-stage pipeline timing
-* Python built-in logging module
 
 ### SDK
 
@@ -239,219 +239,38 @@ knowledge-ai-platform
 
 # Current Project Status
 
-## Day 1 — Backend Setup
+## Days 1-21 — (See previous entries)
 
-* Project repository created
-* FastAPI backend initialized
-* Swagger API documentation enabled
+All prior days complete. Full stack running with PostgreSQL, Qdrant, Redis, and FastAPI backend containerized via Docker Compose. Python SDK implemented. Redis caching for BM25 and embeddings verified.
 
 ---
 
-## Day 2 — Database Integration
+## Day 22 — Fix DELETE Endpoint (Full Cleanup)
 
-* PostgreSQL running via Docker
-* SQLAlchemy database connection implemented
+Fixed the document deletion endpoint to properly clean up all data stores.
 
----
+Problem: The old DELETE endpoint only removed the PostgreSQL document record. Qdrant vectors, PostgreSQL chunk records, and the file on disk were left behind — deleted documents continued appearing in search results indefinitely.
 
-## Day 3 — Database Models
+Key fixes:
 
-* documents and document_chunks tables
-* SQLAlchemy Base model
+- Query all DocumentChunk records for the document before deletion
+- Delete corresponding vectors from Qdrant using PointIdsList
+- Delete the file from disk using os.remove
+- Delete chunk records from PostgreSQL explicitly
+- Call invalidate_bm25_cache() after deletion so BM25 index is rebuilt on next query
+- Added PointIdsList import from qdrant_client.http.models
 
----
-
-## Day 4 — Document CRUD APIs
+Delete now cleans up in this order:
 
 ```
-POST   /documents
-GET    /documents
-GET    /documents/{document_id}
-DELETE /documents/{document_id}
+1. Qdrant vectors deleted (PointIdsList)
+2. File deleted from disk
+3. DocumentChunk records deleted from PostgreSQL
+4. Document record deleted from PostgreSQL
+5. BM25 cache invalidated in Redis
 ```
 
----
-
-## Day 5 — Document Upload System
-
-Allowed file types: `pdf / docx / txt`
-
----
-
-## Day 6 — Document Text Extraction
-
-Pipeline: `Upload → Save → Extract Text → Store`
-
----
-
-## Day 7 — Text Chunking
-
-Character-level sliding window chunking (size=500, overlap=50).
-
----
-
-## Day 8 — Embedding Generation
-
-Model: `all-MiniLM-L6-v2` — Vector size: 384
-
----
-
-## Day 9 — Semantic Search Prototype
-
-```
-POST /search
-Query → Embedding → Cosine Similarity → Top Chunks
-```
-
----
-
-## Day 10 — Retrieval Augmented Generation
-
-Initial RAG pipeline with `google/flan-t5-base`.
-
----
-
-## Day 11 — Vector Database Integration
-
-Qdrant for vector storage. Chunk text stored in payload. PostgreSQL removed from retrieval path.
-
----
-
-## Day 12 — Retrieval Optimization and Context Engineering
-
-- Removed PostgreSQL from retrieval pipeline entirely
-- Score-based filtering, improved prompt engineering
-
----
-
-## Day 13 — Hybrid Search (BM25 + Vector)
-
-- BM25 retriever over Qdrant corpus
-- Reciprocal Rank Fusion (RRF, k=60)
-
-New files: `services/bm25_service.py`, `services/hybrid_search.py`
-
----
-
-## Day 14 — Better LLM
-
-- Replaced flan-t5-base with Phi-3-mini-4k-instruct-Q4_K_M
-- llama-cpp-python for CPU inference
-
-Model: `Phi-3-mini-4k-instruct-Q4_K_M.gguf`
-
----
-
-## Day 15 — Reranking
-
-- Cross-encoder reranking after hybrid search
-- Hybrid retrieves top-5, reranker selects top-3
-
-New file: `services/reranker_service.py`
-Model: `cross-encoder/ms-marco-MiniLM-L-6-v2`
-
----
-
-## Day 16 — AI Agent (Intent Classification + Tool Routing)
-
-- Intent classifier routes to knowledge_base_query or out_of_scope
-- /ask delegates entirely to run_agent()
-
-New file: `services/agent_service.py`
-
----
-
-## Day 17 — Streaming Responses
-
-- generate_answer_stream() and run_agent_stream() added
-- POST /ask/stream endpoint via FastAPI StreamingResponse
-
----
-
-## Day 18 — Observability (Structured Logging + Request Tracing)
-
-- JSONFormatter logger, UUID request_id per request
-- Per-stage timing across full pipeline
-
-New file: `services/logger_service.py`
-
----
-
-## Day 19 — Docker Compose (Full Stack Containerization)
-
-- Dockerfile for FastAPI backend
-- docker-compose.yml with PostgreSQL + Qdrant + Backend
-- Healthchecks, named volumes, dependency ordering
-- Environment variables via .env
-
-New files: `Dockerfile`, `docker-compose.yml`, `.env`, `.dockerignore`
-
----
-
-## Day 20 — Redis Caching + Configuration Hardening
-
-- Redis 7 added to Docker Compose stack
-- BM25 index cached in Redis, invalidated on document upload
-- Query embeddings cached with 1hr TTL
-- MODEL_PATH moved to environment variable
-- search_ms: 858ms → 217ms on cache hit (4x improvement)
-
-New file: `services/cache_service.py`
-
----
-
-## Day 21 — Python SDK
-
-Added a Python SDK for programmatic access to the platform.
-
-Key implementations:
-
-- KnowledgeClient class wrapping all API endpoints
-- Custom exceptions: KnowledgeAPIError, ConnectionError, DocumentNotFoundError
-- requests.Session for connection reuse across calls
-- httpx streaming support for ask_stream()
-- timeout=120 for streaming endpoint (CPU inference can be slow)
-- Example script demonstrating all SDK methods
-
-New files:
-
-```
-sdk/__init__.py
-sdk/client.py
-sdk/exceptions.py
-sdk/example.py
-```
-
-SDK usage:
-
-```python
-from sdk import KnowledgeClient
-
-client = KnowledgeClient("http://localhost:8000")
-
-# Upload a document
-client.upload("path/to/document.pdf")
-
-# Ask a question
-response = client.ask("who is ajmal?")
-print(response["answer"])
-
-# Stream an answer
-for token in client.ask_stream("what are the technical skills?"):
-    print(token, end="", flush=True)
-
-# Search
-results = client.search("machine learning")
-
-# List documents
-docs = client.list_documents()
-```
-
-Run example from project root:
-
-```
-python -m sdk.example
-```
+Verified end-to-end: upload → search returns results → delete → search returns empty.
 
 ---
 
@@ -463,7 +282,7 @@ python -m sdk.example
 POST   /documents              Upload a document
 GET    /documents              List all documents
 GET    /documents/{id}         Get document by ID
-DELETE /documents/{id}         Delete document by ID
+DELETE /documents/{id}         Delete document and all associated data
 ```
 
 ## Search and QA
@@ -554,41 +373,22 @@ python -m sdk.example
 
 # Development Roadmap
 
-### Week 1 — Backend Foundation
+### Week 1 — Backend Foundation ✅
+### Week 2 — AI Retrieval Pipeline ✅
+### Week 3 — RAG System ✅
+### Week 4 — AI Agents ✅
+### Week 5 — Developer SDK ✅
+### Week 6 — Production Setup ✅
 
-* FastAPI
-* PostgreSQL
-* Upload system
-* Text extraction
-* Chunking
+---
 
-### Week 2 — AI Retrieval Pipeline
+# Optimization Roadmap
 
-* Embeddings
-* Vector database
-* Semantic search
-
-### Week 3 — RAG System
-
-* Retrieval pipeline
-* LLM integration
-* Hybrid search
-
-### Week 4 — AI Agents
-
-* Tool-based agents
-* Orchestration layer
-
-### Week 5 — Developer SDK
-
-* Python client ✅
-* Integration examples ✅
-
-### Week 6 — Production Setup
-
-* Docker deployment ✅
-* Redis caching ✅
-* System optimization
+- Day 22: Fix DELETE endpoint ✅
+- Day 23: Remove unused db deps + dead code cleanup
+- Day 24: Shorten intent classification prompt
+- Day 25: Sentence-aware chunking
+- Day 26: Document deduplication
 
 ---
 
@@ -600,7 +400,7 @@ python -m sdk.example
 * Observability dashboard (Grafana + Loki)
 * Kubernetes deployment
 * Multi-tenant architecture
-* SDK pip-installable package (setup.py / pyproject.toml)
+* SDK pip-installable package
 
 ---
 
