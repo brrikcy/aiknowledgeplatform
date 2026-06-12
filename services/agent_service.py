@@ -104,7 +104,7 @@ def run_agent(query: str) -> dict:
             "context": []
         }
 
-    context_chunks = [r["chunk_text"] for r in reranked_results]
+    context_chunks = reranked_results
 
     t0 = time.perf_counter()
     answer = generate_answer(query, context_chunks)
@@ -176,7 +176,7 @@ def run_agent_stream(query: str):
         yield "No relevant documents found in the knowledge base."
         return
 
-    context_chunks = [r["chunk_text"] for r in reranked_results]
+    context_chunks = reranked_results
 
     t0 = time.perf_counter()
     for token in generate_answer_stream(query, context_chunks):

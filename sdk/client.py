@@ -1,6 +1,7 @@
 import requests
 import httpx
 from pathlib import Path
+from typing import Optional
 from sdk.exceptions import KnowledgeAPIError, ConnectionError, DocumentNotFoundError
 
 
@@ -27,16 +28,24 @@ class KnowledgeClient:
         except requests.exceptions.ConnectionError:
             raise ConnectionError(self.base_url)
 
-    def upload(self, file_path: str) -> dict:
+    
+    def upload(self, file_path: str, description: Optional[str] = None) -> dict:
         path = Path(file_path)
         if not path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
+    
         with open(path, "rb") as f:
+            files = {"file": (path.name, f)}
+            data = {}
+            if description:
+                data["description"] = description
             response = self._session.post(
                 self._url("/documents"),
-                files={"file": (path.name, f)}
-            )
+                files=files,
+                data=data
+        )
         return self._handle_response(response)
+
 
     def list_documents(self) -> list:
         response = self._session.get(self._url("/documents"))

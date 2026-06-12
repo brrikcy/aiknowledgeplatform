@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks
+from typing import Optional
 from fastapi.responses import StreamingResponse
 from services.document_processor import extract_text
 from services.text_chunker import chunk_text
@@ -11,7 +12,6 @@ from services.reranker_service import rerank
 from services.agent_service import run_agent, run_agent_stream
 from services.bm25_service import invalidate_bm25_cache
 from qdrant_client.http.models import PointStruct,PointIdsList
-
 from sqlalchemy.orm import Session
 import shutil
 import os
@@ -27,11 +27,87 @@ class QueryRequest(BaseModel):
     query : str
 
 
+def process_document(document_id: str, file_location: str, filename: str, description: Optional[str]):
+    from database.db import SessionLocal
+    db = SessionLocal()
+    try:
+        text = extract_text(file_location)
+        chunks = chunk_text(text)
+
+        # Generate description
+        if not description:
+            from services.rag_service import generate_document_description
+            description = generate_document_description(filename, text)
+
+        # Update document record with description and text
+        document = db.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            return
+        document.text_content = text
+        document.document_description = description
+        document.status = "processing"
+        db.commit()
+
+        # Generate embeddings and store chunks
+        for index, chunk in enumerate(chunks):
+            embedding = embedding_service.generate_embedding(chunk)
+
+            document_chunk = DocumentChunk(
+                document_id=document.id,
+                chunk_text=chunk,
+                chunk_index=index,
+                embedding=embedding
+            )
+            db.add(document_chunk)
+            db.flush()
+
+            qdrant.upsert(
+                collection_name=COLLECTION_NAME,
+                points=[
+                    PointStruct(
+                        id=str(document_chunk.id),
+                        vector=embedding,
+                        payload={
+                            "document_id": str(document.id),
+                            "chunk_index": index,
+                            "chunk_text": chunk,
+                            "document_description": description
+                        }
+                    )
+                ]
+            )
+
+        db.commit()
+        invalidate_bm25_cache()
+
+        # Mark as ready
+        document.status = "ready"
+        db.commit()
+
+    except Exception as e:
+        from services.logger_service import get_logger
+        logger = get_logger("document_processor")
+        logger.error("background processing failed", extra={"extra": {
+            "document_id": document_id,
+            "error": str(e)
+        }})
+        document = db.query(Document).filter(Document.id == document_id).first()
+        if document:
+            document.status = "failed"
+            db.commit()
+    finally:
+        db.close()
+
+
+
 @router.post("/documents")
-def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
-
+def upload_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    description: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
     allowed_extensions = ["pdf", "txt", "docx"]
-
     file_extension = file.filename.split(".")[-1].lower()
 
     if file_extension not in allowed_extensions:
@@ -44,57 +120,30 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
     with open(file_location, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    text = extract_text(file_location)
-    chunks=chunk_text(text)
-
-
     document = Document(
         file_name=file.filename,
         storage_path=file_location,
-        text_content=text
+        status="processing"
     )
-
     db.add(document)
     db.commit()
     db.refresh(document)
 
-    for index, chunk in enumerate(chunks):
+    background_tasks.add_task(
+        process_document,
+        str(document.id),
+        file_location,
+        file.filename,
+        description
+    )
 
-        embedding=embedding_service.generate_embedding(chunk)
-
-        document_chunk = DocumentChunk(
-                document_id=document.id,
-                chunk_text=chunk,
-                chunk_index=index,
-                embedding=embedding
-                )
-        db.add(document_chunk)
-        db.flush()
-
-        vector_id = f"{document.id}_{index}"
-        qdrant.upsert(
-                collection_name = COLLECTION_NAME,
-                points=[
-                    PointStruct(
-                        id=str(document_chunk.id),
-                        vector=embedding,
-                        payload={
-                            "document_id" : str(document.id),
-                            "chunk_index" : index,
-                            "chunk_text" : chunk
-                            }
-                        )
-                    ]
-                )
-
-
-    db.commit()
-    invalidate_bm25_cache()
     return {
         "id": str(document.id),
         "file_name": document.file_name,
         "status": document.status
     }
+
+
 
 
 @router.get("/documents")

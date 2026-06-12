@@ -13,6 +13,7 @@ class Document(Base):
     storage_path=Column(String,nullable=False)
     status=Column(String,default="uploaded")
     text_content = Column(String, nullable=True)
+    document_description = Column(String, nullable=True)
     created_at=Column(DateTime, default=datetime.utcnow)
 
 class DocumentChunk(Base):

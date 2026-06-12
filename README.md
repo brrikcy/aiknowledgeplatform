@@ -10,7 +10,7 @@ The platform runs **entirely inside the organization's infrastructure**, ensurin
 
 The goal of this project is to build a **production-style AI infrastructure platform** capable of:
 
-* Ingesting enterprise documents
+* Ingesting enterprise documents with automatic context generation
 * Extracting and processing document text
 * Chunking documents for semantic retrieval
 * Generating semantic embeddings
@@ -32,7 +32,10 @@ The goal of this project is to build a **production-style AI infrastructure plat
 
 * Upload enterprise documents (PDF, DOCX, TXT)
 * Automatic document parsing
-* Text extraction from documents
+* Async document processing — upload returns instantly, processing in background
+* Auto-generated document descriptions using LLM (filename + content)
+* Optional manual description override at upload time
+* Document context injection — every chunk labeled with its source description
 * Text chunking for retrieval
 * Embedding generation using transformer models
 * Vector similarity search
@@ -64,24 +67,26 @@ FastAPI Backend (Docker)
   |-- Document Upload
   |        |
   |        v
-  |    Local Storage (mounted volume)
+  |    Save file to disk
+  |    Create DB record (status=processing)
+  |    Return instantly ← user gets response here
   |        |
   |        v
-  |    Text Extraction → Chunking → Embeddings
-  |        |
-  |        v
-  |    PostgreSQL (metadata) + Qdrant (vectors)
-  |        |
-  |        v
-  |    Invalidate BM25 cache (Redis)
+  |    [Background Task]
+  |    Extract text
+  |    Generate description (LLM: filename + content)
+  |    Generate embeddings per chunk
+  |    Store in PostgreSQL + Qdrant (with description in payload)
+  |    Invalidate BM25 cache
+  |    Update status=ready
   |
   |-- Document Delete
   |        |
   |        v
-  |    Delete from Qdrant (vectors)
-  |    Delete from PostgreSQL (metadata + chunks)
-  |    Delete from disk (file)
-  |    Invalidate BM25 cache (Redis)
+  |    Delete Qdrant vectors
+  |    Delete file from disk
+  |    Delete PostgreSQL chunks + document
+  |    Invalidate BM25 cache
   |
   v
 User Query
@@ -104,12 +109,15 @@ Query Embedding (Redis cache → generate if miss)
               |
               v
   Reciprocal Rank Fusion (RRF)
+  (carries document_description per chunk)
               |
               v
    Cross-Encoder Reranking
               |
               v
-      Build Optimized Context
+   Build Context with Source Labels:
+   "Chunk 1 [Source: Resume of Ajmal P]:
+    M.Sc. Computer Science..."
               |
               v
      Generate Answer (LLM)
@@ -147,7 +155,7 @@ Query Embedding (Redis cache → generate if miss)
 
 * Sentence Transformers (all-MiniLM-L6-v2)
 * Cross-Encoder (ms-marco-MiniLM-L-6-v2)
-* llama-cpp-python
+* llama-cpp-python (Phi-3-mini-4k-instruct-Q4_K_M)
 * PyMuPDF
 * python-docx
 
@@ -156,6 +164,7 @@ Query Embedding (Redis cache → generate if miss)
 * rank_bm25 (BM25Okapi)
 * Reciprocal Rank Fusion
 * Cross-Encoder Reranking
+* Document context injection per chunk
 
 ### Agent
 
@@ -177,6 +186,7 @@ Query Embedding (Redis cache → generate if miss)
 
 * Python client (requests + httpx)
 * Wraps all API endpoints
+* Optional description parameter on upload
 * Streaming support via httpx
 
 ### Infrastructure
@@ -239,38 +249,57 @@ knowledge-ai-platform
 
 # Current Project Status
 
-## Days 1-21 — (See previous entries)
+## Days 1-22 — Complete
 
-All prior days complete. Full stack running with PostgreSQL, Qdrant, Redis, and FastAPI backend containerized via Docker Compose. Python SDK implemented. Redis caching for BM25 and embeddings verified.
+Full stack running. PostgreSQL, Qdrant, Redis, FastAPI containerized. Python SDK implemented. Redis caching verified. DELETE endpoint fully cleans all data stores.
 
 ---
 
-## Day 22 — Fix DELETE Endpoint (Full Cleanup)
+## Day 23 — Document Context Injection + Async Upload
 
-Fixed the document deletion endpoint to properly clean up all data stores.
+Solved the document identity problem — chunks now carry their source document description so the LLM knows which document each chunk came from.
 
-Problem: The old DELETE endpoint only removed the PostgreSQL document record. Qdrant vectors, PostgreSQL chunk records, and the file on disk were left behind — deleted documents continued appearing in search results indefinitely.
+Key implementations:
 
-Key fixes:
+- Added `document_description` column to PostgreSQL `documents` table
+- Added `generate_document_description(filename, text)` to `rag_service.py` — uses Phi-3-mini to generate a one-sentence description from filename + first 500 chars of content
+- Upload endpoint restructured to async background processing:
+  - HTTP response returns instantly with `status: "processing"`
+  - Background task handles text extraction, description generation, embedding, Qdrant storage
+  - Status transitions to `"ready"` on completion, `"failed"` on error
+- `document_description` stored in Qdrant payload alongside `chunk_text`
+- Context builder updated — each chunk prefixed with source label:
+  ```
+  Chunk 1 [Source: Resume of Muhammed Ajmal P, AI Developer]:
+  M.Sc. Computer Science (Artificial Intelligence and Machine Learning)...
+  ```
+- `generate_answer()` and `generate_answer_stream()` updated to handle dict chunks
+- `agent_service.py` updated to pass full chunk dicts instead of text strings
+- `hybrid_search.py`, `vector_search.py`, `bm25_service.py` updated to carry `document_description` through pipeline
+- SDK `upload()` accepts optional `description` parameter
 
-- Query all DocumentChunk records for the document before deletion
-- Delete corresponding vectors from Qdrant using PointIdsList
-- Delete the file from disk using os.remove
-- Delete chunk records from PostgreSQL explicitly
-- Call invalidate_bm25_cache() after deletion so BM25 index is rebuilt on next query
-- Added PointIdsList import from qdrant_client.http.models
-
-Delete now cleans up in this order:
+Document status lifecycle:
 
 ```
-1. Qdrant vectors deleted (PointIdsList)
-2. File deleted from disk
-3. DocumentChunk records deleted from PostgreSQL
-4. Document record deleted from PostgreSQL
-5. BM25 cache invalidated in Redis
+Upload request received
+      ↓
+File saved, DB record created (status=processing)
+      ↓
+HTTP 200 returned instantly
+      ↓
+[Background]
+Text extracted → Description generated → Chunks embedded → Qdrant stored
+      ↓
+status=ready
 ```
 
-Verified end-to-end: upload → search returns results → delete → search returns empty.
+Verified fixes:
+
+- "what are ajmals educational qualifications?" — now answered correctly
+- "gimme the contact details of ajmal" — now returns phone and email correctly
+- Document description visible in search results
+
+Note: Documents uploaded before Day 23 have empty descriptions. Re-upload or wait for Day 25 (chunking overhaul) when all documents will be re-ingested.
 
 ---
 
@@ -279,9 +308,10 @@ Verified end-to-end: upload → search returns results → delete → search ret
 ## Document Management
 
 ```
-POST   /documents              Upload a document
+POST   /documents              Upload a document (returns instantly, processes in background)
+                               Optional form field: description (string)
 GET    /documents              List all documents
-GET    /documents/{id}         Get document by ID
+GET    /documents/{id}         Get document by ID (poll for status: processing → ready)
 DELETE /documents/{id}         Delete document and all associated data
 ```
 
@@ -355,6 +385,28 @@ docker compose up
 
 ---
 
+## Upload a document
+
+```bash
+# Auto-generate description from filename + content
+curl -X POST http://localhost:8000/documents \
+  -F "file=@document.pdf"
+
+# Provide explicit description
+curl -X POST http://localhost:8000/documents \
+  -F "file=@document.pdf" \
+  -F "description=Resume of Muhammed Ajmal P, AI Developer"
+```
+
+Poll for completion:
+
+```bash
+curl http://localhost:8000/documents/{id}
+# Wait for status: "ready"
+```
+
+---
+
 ## Open API docs
 
 ```
@@ -365,36 +417,39 @@ http://localhost:8000/docs
 
 ## Use the Python SDK
 
+```python
+from sdk import KnowledgeClient
+
+client = KnowledgeClient("http://localhost:8000")
+
+# Upload with auto-generated description
+client.upload("document.pdf")
+
+# Upload with explicit description
+client.upload("document.pdf", description="Resume of Muhammed Ajmal P")
+
+# Ask a question
+response = client.ask("what are ajmals educational qualifications?")
+print(response["answer"])
 ```
-python -m sdk.example
-```
-
----
-
-# Development Roadmap
-
-### Week 1 — Backend Foundation ✅
-### Week 2 — AI Retrieval Pipeline ✅
-### Week 3 — RAG System ✅
-### Week 4 — AI Agents ✅
-### Week 5 — Developer SDK ✅
-### Week 6 — Production Setup ✅
 
 ---
 
 # Optimization Roadmap
 
 - Day 22: Fix DELETE endpoint ✅
-- Day 23: Remove unused db deps + dead code cleanup
+- Day 23: Document context injection + async upload ✅
 - Day 24: Shorten intent classification prompt
-- Day 25: Sentence-aware chunking
+- Day 25: Sentence-aware chunking + diversity filtering
 - Day 26: Document deduplication
+- Day 27: Pre-built llama-cpp-python wheel (fast Docker builds)
+- Day 28: Adaptive top-k retrieval
 
 ---
 
 # Future Improvements
 
-* Improved chunking strategy (sentence-aware, semantic chunking)
+* Celery-based async task queue (upgrade from FastAPI BackgroundTasks)
 * Multi-tool agent with full ReAct loop (requires stronger LLM)
 * Web dashboard
 * Observability dashboard (Grafana + Loki)

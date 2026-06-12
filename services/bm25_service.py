@@ -26,6 +26,7 @@ def build_bm25_index():
             "chunk_text": chunk_text,
             "document_id": point.payload.get("document_id"),
             "chunk_index": point.payload.get("chunk_index"),
+            "document_description": point.payload.get("document_description", ""),
             "tokens": chunk_text.lower().split()
         })
 
