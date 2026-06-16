@@ -1,43 +1,46 @@
+import os
 import time
 import uuid
+import numpy as np
 from services.hybrid_search import hybrid_search
 from services.reranker_service import rerank
-from services.rag_service import generate_answer, generate_answer_stream, llm
+from services.rag_service import generate_answer, generate_answer_stream
+from services.embedding_service import embedding_service
 from services.logger_service import get_logger
 
 logger = get_logger("agent_service")
 
-INTENT_PROMPT = """Your job is to classify the user's question into exactly one of these categories:
+INTENT_CLASSIFIER_ENABLED = os.getenv("INTENT_CLASSIFIER_ENABLED", "true").lower() == "true"
 
-1. knowledge_base_query — the question is asking about specific information, facts, people, documents, or topics that would be found in an internal document database.
-2. out_of_scope — the question is a greeting, small talk, general knowledge question, or anything not related to searching internal documents.
+# Label embeddings computed once at startup — only if classifier is enabled
+if INTENT_CLASSIFIER_ENABLED:
+    _LABEL_KB = "find information about a specific person, their skills, experience, education, contact details, work history, projects, or any facts from uploaded documents and files"
+    _LABEL_OOS = "hello hi good morning greeting thank you bye general knowledge about history science geography world events not related to any document"
+    _kb_embedding = np.array(embedding_service.generate_embedding(_LABEL_KB))
+    _oos_embedding = np.array(embedding_service.generate_embedding(_LABEL_OOS))
 
-Respond with ONLY one of these two words, nothing else:
-knowledge_base_query
-out_of_scope
 
-User question: {query}
-
-Category:"""
+def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
 
 def classify_intent(query: str) -> str:
-    response = llm.create_chat_completion(
-        messages=[
-            {
-                "role": "user",
-                "content": INTENT_PROMPT.format(query=query)
-            }
-        ],
-        max_tokens=10,
-        temperature=0.0
-    )
-    raw = response["choices"][0]["message"]["content"].strip().lower()
+    if not INTENT_CLASSIFIER_ENABLED:
+        logger.info("classifier disabled — defaulting to knowledge_base_query")
+        return "knowledge_base_query"
 
-    if "knowledge_base_query" in raw:
+    query_embedding = np.array(embedding_service.generate_embedding(query))
+    score_kb = _cosine_similarity(query_embedding, _kb_embedding)
+    score_oos = _cosine_similarity(query_embedding, _oos_embedding)
+
+    logger.info("intent scores", extra={"extra": {
+        "knowledge_base_score": round(score_kb, 4),
+        "out_of_scope_score": round(score_oos, 4)
+    }})
+
+    if score_kb > score_oos:
         return "knowledge_base_query"
     return "out_of_scope"
-
 
 def run_agent(query: str) -> dict:
     request_id = str(uuid.uuid4())
