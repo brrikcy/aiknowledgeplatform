@@ -18,12 +18,12 @@ The goal of this project is to build a **production-style AI infrastructure plat
 * Supporting Retrieval Augmented Generation (RAG)
 * Hybrid retrieval combining vector search and keyword search
 * Reranking retrieved chunks using a cross-encoder
-* Routing user queries via an intent-classification agent
+* Fast query routing with configurable intent classification
 * Streaming LLM responses token by token
 * Structured JSON logging with per-request tracing
 * Redis caching for BM25 index and query embeddings
 * Python SDK for programmatic access
-* Full document lifecycle management (upload, search, delete)
+* Full document lifecycle management
 * Running fully locally using containerized infrastructure
 
 ---
@@ -32,24 +32,23 @@ The goal of this project is to build a **production-style AI infrastructure plat
 
 * Upload enterprise documents (PDF, DOCX, TXT)
 * Automatic document parsing
-* Async document processing — upload returns instantly, processing in background
-* Auto-generated document descriptions using LLM (filename + content)
-* Optional manual description override at upload time
-* Document context injection — every chunk labeled with its source description
+* Async document processing — upload returns instantly
+* Auto-generated document descriptions using LLM
+* Document context injection — every chunk labeled with source
 * Text chunking for retrieval
 * Embedding generation using transformer models
 * Vector similarity search
 * BM25 keyword search
 * Hybrid search with Reciprocal Rank Fusion (RRF)
 * Cross-encoder reranking of retrieved chunks
-* Intent-classification agent for query routing
+* Configurable intent classification (embedding-based, toggleable)
 * LLM-powered question answering
 * Streaming responses via Server-Sent Events (SSE)
 * Structured JSON logging with request ID tracing
-* Per-stage pipeline timing (intent, search, rerank, LLM)
+* Per-stage pipeline timing
 * Redis caching for BM25 index and embeddings
 * Python SDK for programmatic integration
-* Full document deletion — cleans Qdrant, PostgreSQL, disk, and cache
+* Full document deletion — cleans all data stores
 * Full Docker Compose stack (PostgreSQL + Qdrant + Redis + Backend)
 * Fully local AI inference
 * Containerized infrastructure
@@ -64,44 +63,30 @@ Users / Python SDK
   v
 FastAPI Backend (Docker)
   |
-  |-- Document Upload
+  |-- Document Upload (async)
   |        |
   |        v
-  |    Save file to disk
-  |    Create DB record (status=processing)
-  |    Return instantly ← user gets response here
+  |    Save file → DB record (status=processing) → Return instantly
   |        |
-  |        v
-  |    [Background Task]
-  |    Extract text
-  |    Generate description (LLM: filename + content)
-  |    Generate embeddings per chunk
-  |    Store in PostgreSQL + Qdrant (with description in payload)
-  |    Invalidate BM25 cache
-  |    Update status=ready
-  |
-  |-- Document Delete
-  |        |
-  |        v
-  |    Delete Qdrant vectors
-  |    Delete file from disk
-  |    Delete PostgreSQL chunks + document
-  |    Invalidate BM25 cache
+  |        v [Background Task]
+  |    Extract text → Generate description (LLM)
+  |    Generate embeddings → Store in Qdrant + PostgreSQL
+  |    Invalidate BM25 cache → status=ready
   |
   v
 User Query
   |
   v
-Intent Classification (LLM)
+[Optional] Intent Classification
+  INTENT_CLASSIFIER_ENABLED=true:
+    Embedding similarity → knowledge_base_query / out_of_scope
+  INTENT_CLASSIFIER_ENABLED=false (default):
+    All queries → knowledge_base_query
   |
-  |-- out_of_scope → Fixed Response
-  |
-  \-- knowledge_base_query
-        |
-        v
+  v
 Query Embedding (Redis cache → generate if miss)
-        |
-        v
+  |
+  v
 ┌──────────────────────────────────────┐
 │  Vector Search (Qdrant ANN)          │
 │  BM25 Search (Redis cache → rebuild) │
@@ -109,15 +94,12 @@ Query Embedding (Redis cache → generate if miss)
               |
               v
   Reciprocal Rank Fusion (RRF)
-  (carries document_description per chunk)
               |
               v
    Cross-Encoder Reranking
               |
               v
-   Build Context with Source Labels:
-   "Chunk 1 [Source: Resume of Ajmal P]:
-    M.Sc. Computer Science..."
+   Build Context with Source Labels
               |
               v
      Generate Answer (LLM)
@@ -166,10 +148,12 @@ Query Embedding (Redis cache → generate if miss)
 * Cross-Encoder Reranking
 * Document context injection per chunk
 
-### Agent
+### Intent Classification
 
-* Intent classification via Phi-3-mini
-* Tool-routing agent (knowledge_base_query / out_of_scope)
+* Embedding-based classifier (all-MiniLM-L6-v2 cosine similarity)
+* Toggleable via INTENT_CLASSIFIER_ENABLED env var
+* Default: OFF (all queries routed to knowledge base)
+* Planned: retrieval-confidence routing (Day 28, post chunking fix)
 
 ### Streaming
 
@@ -186,7 +170,6 @@ Query Embedding (Redis cache → generate if miss)
 
 * Python client (requests + httpx)
 * Wraps all API endpoints
-* Optional description parameter on upload
 * Streaming support via httpx
 
 ### Infrastructure
@@ -249,57 +232,53 @@ knowledge-ai-platform
 
 # Current Project Status
 
-## Days 1-22 — Complete
+## Days 1-23 — Complete
 
-Full stack running. PostgreSQL, Qdrant, Redis, FastAPI containerized. Python SDK implemented. Redis caching verified. DELETE endpoint fully cleans all data stores.
+Full stack running. PostgreSQL, Qdrant, Redis, FastAPI containerized. Python SDK. Redis caching. DELETE endpoint fully cleans all stores. Async document upload with LLM-generated descriptions. Document context injection per chunk.
 
 ---
 
-## Day 23 — Document Context Injection + Async Upload
+## Day 24 — Intent Classification Overhaul
 
-Solved the document identity problem — chunks now carry their source document description so the LLM knows which document each chunk came from.
+Replaced LLM-based intent classification with a fast embedding-based classifier. Added toggle for classifier on/off. Researched and deferred retrieval-confidence routing to Day 28.
 
-Key implementations:
+Key changes:
 
-- Added `document_description` column to PostgreSQL `documents` table
-- Added `generate_document_description(filename, text)` to `rag_service.py` — uses Phi-3-mini to generate a one-sentence description from filename + first 500 chars of content
-- Upload endpoint restructured to async background processing:
-  - HTTP response returns instantly with `status: "processing"`
-  - Background task handles text extraction, description generation, embedding, Qdrant storage
-  - Status transitions to `"ready"` on completion, `"failed"` on error
-- `document_description` stored in Qdrant payload alongside `chunk_text`
-- Context builder updated — each chunk prefixed with source label:
-  ```
-  Chunk 1 [Source: Resume of Muhammed Ajmal P, AI Developer]:
-  M.Sc. Computer Science (Artificial Intelligence and Machine Learning)...
-  ```
-- `generate_answer()` and `generate_answer_stream()` updated to handle dict chunks
-- `agent_service.py` updated to pass full chunk dicts instead of text strings
-- `hybrid_search.py`, `vector_search.py`, `bm25_service.py` updated to carry `document_description` through pipeline
-- SDK `upload()` accepts optional `description` parameter
+- Removed Phi-3-mini from intent classification path entirely
+- Implemented embedding-based classifier using cosine similarity between query and label embeddings
+- Classification now takes 2-686ms vs 4,000-18,000ms previously (6000x improvement)
+- Added `INTENT_CLASSIFIER_ENABLED` environment variable toggle
+- Default set to `false` — all queries route to knowledge base, no false OOS
+- Researched three alternative approaches:
+  - BM25 token overlap routing — fast but lexical overlap ≠ relevance
+  - NER + BM25 entity-anchored routing — valid but adds spacy dependency
+  - Retrieval-confidence routing (post-rerank threshold) — most principled approach
 
-Document status lifecycle:
+Test results with classifier ON (embedding-based):
 
 ```
-Upload request received
-      ↓
-File saved, DB record created (status=processing)
-      ↓
-HTTP 200 returned instantly
-      ↓
-[Background]
-Text extracted → Description generated → Chunks embedded → Qdrant stored
-      ↓
-status=ready
+"what are ajmals technical skills?"  → KB  ✅
+"what certifications does ajmal?"    → KB  ✅
+"gimme ajmals phone number"          → KB  ✅
+"what companies has ajmal worked?"   → KB  ✅
+"hello how are you?"                 → OOS ✅
+"what is the capital of france?"     → OOS ✅
+"who invented the telephone?"        → OOS ✅
+"thank you"                          → OOS ✅
+"where did ajmal study?"             → OOS ❌ (should be KB)
+"what is machine learning?"          → KB  ❌ (should be OOS)
 ```
 
-Verified fixes:
+Decision: classifier defaulted OFF pending Day 28 calibration after chunking improvements.
 
-- "what are ajmals educational qualifications?" — now answered correctly
-- "gimme the contact details of ajmal" — now returns phone and email correctly
-- Document description visible in search results
+Planned Day 28: retrieval-confidence routing using cross-encoder reranker score threshold. Your data shows clear bimodal distribution:
 
-Note: Documents uploaded before Day 23 have empty descriptions. Re-upload or wait for Day 25 (chunking overhaul) when all documents will be re-ingested.
+```
+Relevant chunks:   rerank_score > -8.0
+Irrelevant chunks: rerank_score < -9.0
+```
+
+Threshold will be calibrated after Day 25 (sentence-aware chunking) stabilizes score distributions.
 
 ---
 
@@ -308,10 +287,9 @@ Note: Documents uploaded before Day 23 have empty descriptions. Re-upload or wai
 ## Document Management
 
 ```
-POST   /documents              Upload a document (returns instantly, processes in background)
-                               Optional form field: description (string)
+POST   /documents              Upload a document (async, returns instantly)
 GET    /documents              List all documents
-GET    /documents/{id}         Get document by ID (poll for status: processing → ready)
+GET    /documents/{id}         Get document by ID (poll for status: ready)
 DELETE /documents/{id}         Delete document and all associated data
 ```
 
@@ -319,7 +297,7 @@ DELETE /documents/{id}         Delete document and all associated data
 
 ```
 POST   /search                 Hybrid search with reranking
-POST   /ask                    Agent-routed question answering
+POST   /ask                    Question answering
 POST   /ask/stream             Streaming question answering (SSE)
 ```
 
@@ -351,8 +329,6 @@ wget https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF/resolve/main/P
 cd ..
 ```
 
-Note: The embedding model (all-MiniLM-L6-v2) and reranking model (ms-marco-MiniLM-L-6-v2) are downloaded automatically on first run.
-
 ---
 
 ## Configure environment
@@ -367,6 +343,7 @@ DATABASE_URL=postgresql://admin:admin123@postgres:5432/knowledge_ai
 QDRANT_HOST=qdrant
 REDIS_URL=redis://redis:6379
 MODEL_PATH=models/Phi-3-mini-4k-instruct-Q4_K_M.gguf
+INTENT_CLASSIFIER_ENABLED=false
 ```
 
 ---
@@ -377,32 +354,10 @@ MODEL_PATH=models/Phi-3-mini-4k-instruct-Q4_K_M.gguf
 docker compose up --build
 ```
 
-For subsequent starts (no code changes):
+For subsequent starts:
 
 ```
 docker compose up
-```
-
----
-
-## Upload a document
-
-```bash
-# Auto-generate description from filename + content
-curl -X POST http://localhost:8000/documents \
-  -F "file=@document.pdf"
-
-# Provide explicit description
-curl -X POST http://localhost:8000/documents \
-  -F "file=@document.pdf" \
-  -F "description=Resume of Muhammed Ajmal P, AI Developer"
-```
-
-Poll for completion:
-
-```bash
-curl http://localhost:8000/documents/{id}
-# Wait for status: "ready"
 ```
 
 ---
@@ -415,47 +370,28 @@ http://localhost:8000/docs
 
 ---
 
-## Use the Python SDK
-
-```python
-from sdk import KnowledgeClient
-
-client = KnowledgeClient("http://localhost:8000")
-
-# Upload with auto-generated description
-client.upload("document.pdf")
-
-# Upload with explicit description
-client.upload("document.pdf", description="Resume of Muhammed Ajmal P")
-
-# Ask a question
-response = client.ask("what are ajmals educational qualifications?")
-print(response["answer"])
-```
-
----
-
 # Optimization Roadmap
 
 - Day 22: Fix DELETE endpoint ✅
 - Day 23: Document context injection + async upload ✅
-- Day 24: Shorten intent classification prompt
+- Day 24: Intent classification overhaul (6000x latency improvement) ✅
 - Day 25: Sentence-aware chunking + diversity filtering
 - Day 26: Document deduplication
-- Day 27: Pre-built llama-cpp-python wheel (fast Docker builds)
-- Day 28: Adaptive top-k retrieval
+- Day 27: Pre-built llama-cpp-python wheel
+- Day 28: Retrieval-confidence routing (post-rerank threshold)
 
 ---
 
 # Future Improvements
 
-* Celery-based async task queue (upgrade from FastAPI BackgroundTasks)
-* Multi-tool agent with full ReAct loop (requires stronger LLM)
+* Celery-based async task queue
 * Web dashboard
 * Observability dashboard (Grafana + Loki)
 * Kubernetes deployment
 * Multi-tenant architecture
 * SDK pip-installable package
+* Adaptive top-k retrieval
+* Query rewriting / expansion
 
 ---
 
