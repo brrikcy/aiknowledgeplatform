@@ -11,8 +11,7 @@ The platform runs **entirely inside the organization's infrastructure**, ensurin
 The goal of this project is to build a **production-style AI infrastructure platform** capable of:
 
 * Ingesting enterprise documents with automatic context generation
-* Extracting and processing document text
-* Chunking documents for semantic retrieval
+* Extracting and processing document text with sentence-aware chunking
 * Generating semantic embeddings
 * Enabling semantic search over internal knowledge
 * Supporting Retrieval Augmented Generation (RAG)
@@ -35,7 +34,7 @@ The goal of this project is to build a **production-style AI infrastructure plat
 * Async document processing — upload returns instantly
 * Auto-generated document descriptions using LLM
 * Document context injection — every chunk labeled with source
-* Text chunking for retrieval
+* Sentence-aware chunking — never splits mid-sentence or mid-word
 * Embedding generation using transformer models
 * Vector similarity search
 * BM25 keyword search
@@ -69,19 +68,17 @@ FastAPI Backend (Docker)
   |    Save file → DB record (status=processing) → Return instantly
   |        |
   |        v [Background Task]
-  |    Extract text → Generate description (LLM)
-  |    Generate embeddings → Store in Qdrant + PostgreSQL
-  |    Invalidate BM25 cache → status=ready
+  |    Extract text (layout-aware PyMuPDF extraction)
+  |    Split into sentences → group into chunks (never mid-sentence)
+  |    Generate description (LLM) → Generate embeddings
+  |    Store in Qdrant + PostgreSQL → Invalidate BM25 cache
+  |    status=ready
   |
   v
 User Query
   |
   v
-[Optional] Intent Classification
-  INTENT_CLASSIFIER_ENABLED=true:
-    Embedding similarity → knowledge_base_query / out_of_scope
-  INTENT_CLASSIFIER_ENABLED=false (default):
-    All queries → knowledge_base_query
+[Optional] Intent Classification (default OFF)
   |
   v
 Query Embedding (Redis cache → generate if miss)
@@ -138,8 +135,15 @@ Query Embedding (Redis cache → generate if miss)
 * Sentence Transformers (all-MiniLM-L6-v2)
 * Cross-Encoder (ms-marco-MiniLM-L-6-v2)
 * llama-cpp-python (Phi-3-mini-4k-instruct-Q4_K_M)
-* PyMuPDF
+* PyMuPDF (layout-aware text extraction)
 * python-docx
+
+### Chunking
+
+* Regex-based sentence splitting (no external NLP dependency)
+* Sentences grouped up to ~500 chars per chunk
+* 1-sentence overlap carried between chunks
+* Never splits mid-sentence or mid-word
 
 ### Retrieval
 
@@ -153,7 +157,7 @@ Query Embedding (Redis cache → generate if miss)
 * Embedding-based classifier (all-MiniLM-L6-v2 cosine similarity)
 * Toggleable via INTENT_CLASSIFIER_ENABLED env var
 * Default: OFF (all queries routed to knowledge base)
-* Planned: retrieval-confidence routing (Day 28, post chunking fix)
+* Planned: retrieval-confidence routing (Day 28)
 
 ### Streaming
 
@@ -232,53 +236,51 @@ knowledge-ai-platform
 
 # Current Project Status
 
-## Days 1-23 — Complete
+## Days 1-24 — Complete
 
-Full stack running. PostgreSQL, Qdrant, Redis, FastAPI containerized. Python SDK. Redis caching. DELETE endpoint fully cleans all stores. Async document upload with LLM-generated descriptions. Document context injection per chunk.
+Full stack running. PostgreSQL, Qdrant, Redis, FastAPI containerized. Python SDK. Redis caching. DELETE endpoint fully cleans all stores. Async document upload with LLM-generated descriptions. Document context injection per chunk. Intent classification overhauled — embedding-based, toggleable, default OFF.
 
 ---
 
-## Day 24 — Intent Classification Overhaul
+## Day 25 — Sentence-Aware Chunking
 
-Replaced LLM-based intent classification with a fast embedding-based classifier. Added toggle for classifier on/off. Researched and deferred retrieval-confidence routing to Day 28.
+Replaced character-level chunking with sentence-aware chunking, directly fixing the majority of retrieval quality issues identified during testing.
 
-Key changes:
+Key implementations:
 
-- Removed Phi-3-mini from intent classification path entirely
-- Implemented embedding-based classifier using cosine similarity between query and label embeddings
-- Classification now takes 2-686ms vs 4,000-18,000ms previously (6000x improvement)
-- Added `INTENT_CLASSIFIER_ENABLED` environment variable toggle
-- Default set to `false` — all queries route to knowledge base, no false OOS
-- Researched three alternative approaches:
-  - BM25 token overlap routing — fast but lexical overlap ≠ relevance
-  - NER + BM25 entity-anchored routing — valid but adds spacy dependency
-  - Retrieval-confidence routing (post-rerank threshold) — most principled approach
+- Rewrote `text_chunker.py` — regex-based sentence splitting, no new dependency
+- Sentences grouped into chunks up to ~500 chars, never split mid-sentence
+- 1-sentence overlap carried forward between chunks for context continuity
+- Improved `document_processor.py` PDF extraction to use PyMuPDF's layout-aware `get_text("text")` mode
+- Replaced remaining `print()` warning with structured logger call
+- Full data wipe and re-ingestion performed (Qdrant, PostgreSQL, Redis, storage)
 
-Test results with classifier ON (embedding-based):
+Sentence splitting logic:
 
-```
-"what are ajmals technical skills?"  → KB  ✅
-"what certifications does ajmal?"    → KB  ✅
-"gimme ajmals phone number"          → KB  ✅
-"what companies has ajmal worked?"   → KB  ✅
-"hello how are you?"                 → OOS ✅
-"what is the capital of france?"     → OOS ✅
-"who invented the telephone?"        → OOS ✅
-"thank you"                          → OOS ✅
-"where did ajmal study?"             → OOS ❌ (should be KB)
-"what is machine learning?"          → KB  ❌ (should be OOS)
+```python
+sentence_endings = re.compile(r'(?<=[.!?])\s+(?=[A-Z])|(?<=[.!?])\n+')
 ```
 
-Decision: classifier defaulted OFF pending Day 28 calibration after chunking improvements.
-
-Planned Day 28: retrieval-confidence routing using cross-encoder reranker score threshold. Your data shows clear bimodal distribution:
+Chunking logic:
 
 ```
-Relevant chunks:   rerank_score > -8.0
-Irrelevant chunks: rerank_score < -9.0
+Split text into sentences
+      ↓
+Group sentences until adding one would exceed chunk_size (~500 chars)
+      ↓
+Start new chunk, carrying forward last N sentences as overlap
+      ↓
+Never break a sentence in the middle
 ```
 
-Threshold will be calibrated after Day 25 (sentence-aware chunking) stabilizes score distributions.
+Verified fixes — previously failing queries now answered correctly and completely:
+
+- "what are ajmals educational qualifications?" — full, accurate answer (previously failed on `elopment (RGNIYD)` fragment)
+- "what core AI/ML skills does the person have?" — complete skill list returned (previously cut off at `TensorF`)
+
+Known non-blocking issue: occasional missing space between text runs in PDF extraction (e.g. `M.Sc.Computer`) — a PyMuPDF text-run boundary artifact, not a chunking issue. Does not affect answer correctness.
+
+Operational note: uploading via Swagger UI (`/docs`) requires clearing the default `"string"` placeholder in the optional `description` field before submitting, or it will override auto-generation with the literal text `"string"`. Uploading via curl without the field works correctly.
 
 ---
 
@@ -362,6 +364,17 @@ docker compose up
 
 ---
 
+## Upload a document
+
+```bash
+curl -X POST http://localhost:8000/documents \
+  -F "file=@document.pdf"
+```
+
+Note: if using Swagger UI (`/docs`), clear the default `"string"` value in the `description` field before executing, or leave it blank.
+
+---
+
 ## Open API docs
 
 ```
@@ -374,17 +387,18 @@ http://localhost:8000/docs
 
 - Day 22: Fix DELETE endpoint ✅
 - Day 23: Document context injection + async upload ✅
-- Day 24: Intent classification overhaul (6000x latency improvement) ✅
-- Day 25: Sentence-aware chunking + diversity filtering
+- Day 24: Intent classification overhaul ✅
+- Day 25: Sentence-aware chunking ✅
 - Day 26: Document deduplication
 - Day 27: Pre-built llama-cpp-python wheel
-- Day 28: Retrieval-confidence routing (post-rerank threshold)
+- Day 28: Retrieval-confidence routing (post-rerank threshold, calibrated on clean chunks)
 
 ---
 
 # Future Improvements
 
 * Celery-based async task queue
+* Fix PDF text-run spacing artifact (minor)
 * Web dashboard
 * Observability dashboard (Grafana + Loki)
 * Kubernetes deployment

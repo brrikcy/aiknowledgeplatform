@@ -13,10 +13,13 @@ def extract_text_from_pdf(file_path):
     pdf=fitz.open(file_path)
 
     for page in pdf:
-        text += page.get_text()
+        text += page.get_text("text")
+        text+="\n"
 
     if len(text.strip()) == 0:
-        print("Warning: No extractable text found")
+        from services.logger_service import get_logger
+        logger=get_logger("document_processor")
+        logger.warning("no extractable text found",extra={"file_path": file_path})
 
     return text
 
