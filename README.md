@@ -339,6 +339,38 @@ Verified end-to-end: uploading the same file twice returns the same `id` with `d
 
 ---
 
+## Day 27 — Faster, Cross-Platform Docker Builds
+
+Goal: reduce Docker build time and keep it fast on any machine, not just the one it was first built on — not merely "build it once, fast, on my own laptop."
+
+Initial approach considered and rejected: building a host-native `llama-cpp-python` wheel (`pip wheel llama-cpp-python --no-deps -w wheels/`) on the WSL2 host and reusing it in Docker. Rejected because such a wheel bakes in the *building* machine's CPU instruction set (AVX/AVX2/etc.) and glibc version — it would risk `SIGILL` crashes on a different machine's CPU, or fail entirely on an older glibc. This directly conflicts with the actual goal (works on any device), so it was not implemented.
+
+Adopted approach: point `pip` at the official, portable prebuilt wheel indexes the respective projects publish for exactly this purpose:
+
+- `llama-cpp-python`: `https://abetlen.github.io/llama-cpp-python/whl/cpu` — a generic-baseline CPU build (`py3-none-manylinux2014_x86_64`), not tied to a specific CPU's instruction set or even a specific Python minor version.
+- `torch` (a transitive dependency of `sentence-transformers`, not explicit in `requirements.txt` but resolved anyway): `https://download.pytorch.org/whl/cpu` — PyTorch's own official CPU-only build (`torch-2.13.0+cpu`), avoiding the ~800MB-2GB+ CUDA/cuDNN runtime that gets pulled in by default even though this project never uses a GPU.
+
+Both are added as `--extra-index-url` lines at the top of `requirements.txt` — no Dockerfile changes needed for pip to find them.
+
+With both packages now installing from prebuilt wheels, the Dockerfile's `apt-get install -y gcc g++ cmake` layer was removed entirely — nothing in `requirements.txt` requires compilation anymore (`psycopg2-binary` is already binary; `numpy`, `scipy`, `scikit-learn`, `lxml`, `tokenizers`, `PyMuPDF` all publish manylinux wheels).
+
+Verified, measured results (clean `--no-cache` build, same machine, before vs. after):
+
+| | Before | After |
+|---|---|---|
+| Total build time | 955.3s (~16 min) | 254.5s (~4.2 min) — ~3.75x faster |
+| `pip install` step | 552.6s | 169.9s — ~3.25x faster |
+| Image export step | 397.1s | 81.6s — ~4.9x faster |
+| Final image size | not previously measured | 2.22GB |
+
+Also verified: an unchanged rebuild hits Docker's layer cache correctly and completes in ~2s, confirming the simplified Dockerfile still caches as expected.
+
+Portability note: unlike a host-built wheel, both adopted wheels are official, generic manylinux/CPU builds with no host-specific optimization baked in — the same `requirements.txt` should produce the same fast, non-compiling build on any x86_64 Linux Docker host, not just the machine that happened to build it first.
+
+Known follow-on, not yet done: the `torch` CPU wheel (~192MB) is still the single largest dependency download. No further action planned unless build time becomes a problem again — flagging only so a future thread doesn't rediscover this from scratch.
+
+---
+
 # API Reference
 
 ## Document Management
@@ -461,7 +493,7 @@ http://localhost:8000/docs
 - Day 25: Sentence-aware chunking ✅
 - Housekeeping pass: n_ctx regression, logger typos, extra= shape, chunk join separator, unused db deps, stray file removal ✅
 - Day 26: Document deduplication ✅
-- Day 27: Pre-built llama-cpp-python wheel
+- Day 27: Faster, cross-platform Docker builds (prebuilt CPU wheels for llama-cpp-python and torch, compiler toolchain removed) ✅
 - Day 28: Retrieval-confidence routing (post-rerank threshold, calibrated on clean chunks)
 
 ---
@@ -473,7 +505,6 @@ http://localhost:8000/docs
 - Embedding-based intent classifier (behind `INTENT_CLASSIFIER_ENABLED` toggle) is only 8/10 accurate and not used by default
 - Pre-existing documents uploaded before Day 26 have `content_hash = NULL` and are not retroactively deduplicated
 - FastAPI `BackgroundTasks` (not Celery) means an in-flight document processing job is lost if the backend restarts mid-processing
-- Docker builds still take 10-15 min from cold cache due to `llama-cpp-python` compiling from source — Day 27 will address this
 
 ---
 
