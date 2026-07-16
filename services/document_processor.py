@@ -19,7 +19,7 @@ def extract_text_from_pdf(file_path):
     if len(text.strip()) == 0:
         from services.logger_service import get_logger
         logger=get_logger("document_processor")
-        logger.warning("no extractable text found",extra={"file_path": file_path})
+        logger.warning("no extractable text found", extra={"extra": {"file_path": file_path}})
 
     return text
 

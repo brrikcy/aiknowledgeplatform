@@ -4,7 +4,7 @@ MODEL_PATH = os.getenv("MODEL_PATH", "models/Phi-3-mini-4k-instruct-Q4_K_M.gguf"
 
 llm = Llama(
     model_path=MODEL_PATH,
-    n_ctx=4096,
+    n_ctx=2048,
     n_batch=512,
     n_threads=4,
     verbose=False

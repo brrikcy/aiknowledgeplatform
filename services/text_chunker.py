@@ -30,7 +30,7 @@ def chunk_text(text: str, chunk_size: int=500, overlap_sentences: int =1) -> lis
         sentence_length = len(sentence)
 
         if current_length + sentence_length > chunk_size and current_chunk:
-            chunks.append("".join(current_chunk))
+            chunks.append(" ".join(current_chunk))
 
             overlap = current_chunk[-overlap_sentences:] if overlap_sentences > 0 else []
             current_chunk = overlap.copy()
@@ -40,7 +40,7 @@ def chunk_text(text: str, chunk_size: int=500, overlap_sentences: int =1) -> lis
         current_length += sentence_length
 
     if current_chunk:
-        chunks.append("".join(current_chunk))
+        chunks.append(" ".join(current_chunk))
 
     return chunks
 

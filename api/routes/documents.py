@@ -215,7 +215,7 @@ def delete_document(document_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/search")
-def search_documents(request: QueryRequest, db: Session = Depends(get_db)):
+def search_documents(request: QueryRequest):
 
     results = hybrid_search(request.query)
 
@@ -224,7 +224,7 @@ def search_documents(request: QueryRequest, db: Session = Depends(get_db)):
     return {"query": request.query, "results": reranked_results}
 
 @router.post("/ask")
-def ask_question(request: QueryRequest, db: Session = Depends(get_db)):
+def ask_question(request: QueryRequest):
     result= run_agent(request.query)
     return result
 
