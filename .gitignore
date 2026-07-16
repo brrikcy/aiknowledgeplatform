@@ -8,3 +8,5 @@ storage/documents/*
 !storage/documents/.gitkeep
 llm_models/
 models/
+rerank_calibration.csv
+test_dedup_calibration.sh

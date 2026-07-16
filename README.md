@@ -86,9 +86,6 @@ FastAPI Backend (Docker)
 User Query
   |
   v
-[Optional] Intent Classification (default OFF)
-  |
-  v
 Query Embedding (Redis cache → generate if miss)
   |
   v
@@ -102,6 +99,9 @@ Query Embedding (Redis cache → generate if miss)
               |
               v
    Cross-Encoder Reranking
+              |
+              v
+   Retrieval-Confidence Check (top rerank_score < threshold? → reject, no LLM call)
               |
               v
    Build Context with Source Labels
@@ -168,12 +168,12 @@ Query Embedding (Redis cache → generate if miss)
 * Cross-Encoder Reranking
 * Document context injection per chunk
 
-### Intent Classification
+### Query Routing
 
-* Embedding-based classifier (all-MiniLM-L6-v2 cosine similarity)
-* Toggleable via INTENT_CLASSIFIER_ENABLED env var
-* Default: OFF (all queries routed to knowledge base)
-* Planned: retrieval-confidence routing (Day 28)
+* Retrieval-confidence routing (Day 28) — no pre-retrieval classifier
+* Always runs hybrid search + rerank; rejects only if the top `rerank_score` falls below a calibrated threshold
+* Threshold: `RETRIEVAL_CONFIDENCE_THRESHOLD` env var, default `-9.0`
+* Replaces the earlier embedding-based intent classifier entirely (removed)
 
 ### Streaming
 
@@ -371,6 +371,46 @@ Known follow-on, not yet done: the `torch` CPU wheel (~192MB) is still the singl
 
 ---
 
+## Day 28 — Retrieval-Confidence Routing
+
+Replaces the pre-retrieval embedding-based intent classifier (Day 24, default-disabled since) with post-retrieval confidence routing, per the direction identified and deliberately deferred back in Day 24.
+
+Calibration process:
+
+- Ingested 3 new, genuinely varied documents (a technical architecture/BOM report, a raw product-design note, an institutional training report with tables) alongside the existing 2 (resume, offer letter) — addressing the Day-24-era limitation of calibrating on only two similar documents
+- Ran 25 test queries against `/search` spanning: simple factual, numeric/table-based, cross-document ambiguity, indirect entity phrasing, adjacent-but-uncovered facts, genuinely out-of-scope, vocabulary-overlap false-positive risks, multi-hop synthesis, and vague/underspecified queries
+- Recorded each query's top `rerank_score`
+
+Findings — three distinct clusters emerged, not two:
+
+1. **True out-of-scope**: tightly clustered at **-11.07 to -11.20** (~0.13 spread across 3 unrelated queries) — a very stable, confident signal
+2. **Vague/underspecified queries** ("tell me about the project"): a distinct middle cluster at **-6.38 to -6.49** — retrieves loosely-related generic text, clearly above true out-of-scope but clearly below genuine matches
+3. **Everything else** — genuine in-scope, indirectly-phrased, ambiguous-entity, multi-hop, and vocabulary-overlap queries — spans **-1.47 to +8.29**, with no meaningful separation between these subcategories
+
+Two things confirmed as *not* problems with this approach, worth recording so they aren't rediscovered:
+
+- **Queries about details the corpus doesn't actually contain** (e.g. "what language builds the Session Manager?") still scored positive (+3.42, +4.63) because relevant *context* exists even though the specific fact doesn't — this is correctly a downstream concern for `rag_service.py`'s "not available in the provided documents" fallback, not something retrieval-confidence routing is meant to catch.
+- **Vocabulary-overlap queries** ("what is object detection?") also scored positive, correctly, since the terms genuinely appear in ingested documents with real surrounding context — resolving "did they mean this document's usage or general knowledge" was never in scope for this signal.
+
+Threshold selected: **`RETRIEVAL_CONFIDENCE_THRESHOLD = -9.0`** — sits with margin above the out-of-scope cluster (+2.1) and below the vague cluster (+2.6), biased toward the low (permissive) side per the project's established philosophy that false rejections of legitimate queries are worse than occasionally spending a full pipeline run on a genuinely out-of-scope one.
+
+Implementation, in `services/agent_service.py`:
+
+- `classify_intent()`, the embedding-based classifier, its label embeddings, and the `INTENT_CLASSIFIER_ENABLED` toggle are all removed entirely (not run alongside the new approach — a full replacement)
+- `run_agent()` / `run_agent_stream()` now always run `hybrid_search` + `rerank` first; reject only if `reranked_results[0]["rerank_score"] < RETRIEVAL_CONFIDENCE_THRESHOLD` (or if there are no results at all)
+- Rejection returns the same message used by the LLM's own "not found" fallback (`"The information is not available in the provided documents."`) for both the old out-of-scope and no-results cases, since routing no longer distinguishes between them
+- The response dict no longer includes an `"intent"` key (nothing produces one anymore)
+- Zero new dependencies, zero new latency beyond what `/search` already costs — reuses the `rerank_score` already computed in the existing pipeline
+- New env var `RETRIEVAL_CONFIDENCE_THRESHOLD` (default `-9.0`) added to `.env` and `docker-compose.yml`; `INTENT_CLASSIFIER_ENABLED` removed from both
+
+Verified end-to-end against the live `/ask` endpoint: genuinely out-of-scope queries return the rejection message with empty context and no LLM call; in-scope queries return correct, real answers.
+
+Known nuance surfaced during verification, not a routing defect: for one query, the reranker's *top-ranked* chunk (which routing uses for the accept/reject decision) was not the chunk that actually contained the answer — the correct chunk ranked lower but was still included in the top-3 context passed to the LLM, which correctly used it anyway. Routing only needs the top score to clear the confidence bar; it doesn't require the top chunk to be the answer-bearing one. Not something Day 28 needed to fix, but worth recording so a future thread doesn't misread a similar case as a routing failure.
+
+Also surfaced (pre-existing, unrelated to Day 28): one ingested document (`Ajmal_Resume.pdf`) shows `document_description: "string"` in its retrieved context — a live instance of the already-documented Swagger UI placeholder gotcha (Day 23). Not fixed as part of Day 28; needs a delete + clean re-upload of that specific document.
+
+---
+
 # API Reference
 
 ## Document Management
@@ -432,7 +472,7 @@ DATABASE_URL=postgresql://admin:admin123@postgres:5432/knowledge_ai
 QDRANT_HOST=qdrant
 REDIS_URL=redis://redis:6379
 MODEL_PATH=models/Phi-3-mini-4k-instruct-Q4_K_M.gguf
-INTENT_CLASSIFIER_ENABLED=false
+RETRIEVAL_CONFIDENCE_THRESHOLD=-9.0
 ```
 
 ---
@@ -494,7 +534,7 @@ http://localhost:8000/docs
 - Housekeeping pass: n_ctx regression, logger typos, extra= shape, chunk join separator, unused db deps, stray file removal ✅
 - Day 26: Document deduplication ✅
 - Day 27: Faster, cross-platform Docker builds (prebuilt CPU wheels for llama-cpp-python and torch, compiler toolchain removed) ✅
-- Day 28: Retrieval-confidence routing (post-rerank threshold, calibrated on clean chunks)
+- Day 28: Retrieval-confidence routing (post-rerank threshold, calibrated on 5 diverse documents) ✅
 
 ---
 
@@ -502,7 +542,8 @@ http://localhost:8000/docs
 
 - Occasional missing space between PDF text runs (e.g. `M.Sc.Computer`) — PyMuPDF extraction quirk; the chunk-join spacing fix (housekeeping pass) may have reduced this, not yet fully re-verified post-fix
 - Rare `GGML_ASSERT` buffer-overflow crash on unusually long/complex queries (one observed occurrence, not reproducible on normal queries) — a preventive `n_batch=256` fix was proposed but not applied
-- Embedding-based intent classifier (behind `INTENT_CLASSIFIER_ENABLED` toggle) is only 8/10 accurate and not used by default
+- One document (`Ajmal_Resume.pdf`) has `document_description: "string"` due to the Swagger UI placeholder gotcha — needs delete + clean re-upload
+- Reranker's top-1 chunk is not always the answer-bearing chunk (observed on one calibration query) — routing still works correctly since it only needs top-1 to clear the confidence threshold, but this is a retrieval/reranking quality nuance worth monitoring, not something Day 28 addressed
 - Pre-existing documents uploaded before Day 26 have `content_hash = NULL` and are not retroactively deduplicated
 - FastAPI `BackgroundTasks` (not Celery) means an in-flight document processing job is lost if the backend restarts mid-processing
 

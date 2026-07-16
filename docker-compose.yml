@@ -48,7 +48,7 @@ services:
       QDRANT_HOST: ${QDRANT_HOST}
       REDIS_URL: ${REDIS_URL}
       MODEL_PATH: ${MODEL_PATH}
-      INTENT_CLASSIFIER_ENABLED: ${INTENT_CLASSIFIER_ENABLED}
+      RETRIEVAL_CONFIDENCE_THRESHOLD: ${RETRIEVAL_CONFIDENCE_THRESHOLD}
     volumes:
       - ./models:/app/models
       - ./storage:/app/storage
