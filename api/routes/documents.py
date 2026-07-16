@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 import shutil
 import os
 import uuid
+import hashlib
 from pydantic import BaseModel
 from database.db import get_db
 from database.models import Document,DocumentChunk
@@ -113,17 +114,31 @@ def upload_document(
     if file_extension not in allowed_extensions:
         return {"error": "File type not allowed"}
 
+    file_bytes = file.file.read()
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
+
+    existing = db.query(Document).filter(Document.content_hash ==content_hash).first()
+    if existing:
+        return {
+                "id": str(existing.id),
+                "file_name" : existing.file_name,
+                "status" : existing.status,
+                "duplicate": True
+            }
+
+
     unique_filename = f"{uuid.uuid4()}_{file.filename}"
     os.makedirs("storage/documents", exist_ok=True)
     file_location = f"storage/documents/{unique_filename}"
 
     with open(file_location, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        buffer.write(file_bytes)
 
     document = Document(
         file_name=file.filename,
         storage_path=file_location,
-        status="processing"
+        status="processing",
+        content_hash=content_hash
     )
     db.add(document)
     db.commit()
@@ -140,7 +155,8 @@ def upload_document(
     return {
         "id": str(document.id),
         "file_name": document.file_name,
-        "status": document.status
+        "status": document.status,
+        "duplicate": False
     }
 
 

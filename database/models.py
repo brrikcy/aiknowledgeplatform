@@ -14,6 +14,7 @@ class Document(Base):
     status=Column(String,default="uploaded")
     text_content = Column(String, nullable=True)
     document_description = Column(String, nullable=True)
+    content_hash = Column(String, nullable=True, index=True)
     created_at=Column(DateTime, default=datetime.utcnow)
 
 class DocumentChunk(Base):
